@@ -1,13 +1,13 @@
 ```markdown
-# RAGChat - AI Research Assistant
+RAGChat - AI Research Assistant
 
-Proyek ini adalah implementasi sistem *Retrieval-Augmented Generation* (RAG) berbasis *monorepo* yang memadukan
-antarmuka *chatbot* modern dengan *backend* AI lokal. Sistem ini dirancang untuk membaca dan menganalisis
-dokumen PDF serta menjawab pertanyaan secara interaktif menggunakan *Small Language Model* (SLM).
+Proyek ini adalah implementasi sistem Retrieval-Augmented Generation (RAG) berbasis monorepo yang memadukan
+antarmuka chatbot modern dengan backend AI lokal. Sistem ini dirancang untuk membaca dan menganalisis
+dokumen PDF serta menjawab pertanyaan secara interaktif menggunakan Small Language Model (SLM).
 
-## 🗂️ Struktur Direktori
+🗂️ Struktur Direktori
 
-```text
+
 project_rag/
 ├── ai-backend/          # Backend FastAPI (RAG, ChromaDB, Integrasi Model)
 └── chatbot-frontend/    # Frontend Next.js (UI Chatbot interaktif)
@@ -19,6 +19,20 @@ Pastikan sistem kamu sudah terinstal perangkat lunak berikut:
 2. **Python** (v3.10 atau lebih baru)
 3. [**Ollama**](https://ollama.com/download/windows)
 4. **Git**
+
+---
+
+## 🖥️ System Requirements
+1. Spesifikasi Minimum (Running on CPU)
+* **Prosesor:** Intel Core i5 Gen 10 / AMD Ryzen 5 3000 Series.
+* **RAM:** 8 GB (Minimal sisa RAM bebas 4 GB untuk model & backend).
+* **Penyimpanan:** ruang kosong minimal 5 GB.
+
+### 2. Spesifikasi Rekomendasi (Running on GPU)
+* **Prosesor:** Intel Core i7 / AMD Ryzen 7 Series terbaru.
+* **RAM:** 16 GB (Sangat disarankan untuk stabilitas *monorepo*).
+* **GPU:** NVIDIA RTX 3050 / 4050 (atau lebih tinggi) dengan **VRAM 4 GB+**.
+* **Penyimpanan:** ruang kosong minimal 5 GB.
 
 ---
 
