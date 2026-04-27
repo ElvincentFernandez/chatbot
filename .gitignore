@@ -1,16 +1,16 @@
-# v0 sandbox internal files
-__v0_runtime_loader.js
-__v0_devtools.tsx
-__v0_jsx-dev-runtime.ts
-.snowflake/
-.v0-trash/
-.vercel/
-next.user-config.*
+# Python Backend
+ai-backend/venv/
+ai-backend/__pycache__/
+ai-backend/chroma_db/
+ai-backend/temp_uploads/
+ai-backend/*.gguf
+ai-backend/.env
 
-# Environment variables
-.env*.local
+# Next.js Frontend
+chatbot-frontend/node_modules/
+chatbot-frontend/.next/
+chatbot-frontend/.env.local
 
-# Common ignores
-node_modules
-.next/
+# OS files
 .DS_Store
+Thumbs.db

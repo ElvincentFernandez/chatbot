@@ -1,0 +1,28 @@
+FROM ./qwen2.5-3b-instruct.Q4_K_M.gguf
+
+# --- PARAMETER GENERASI ---
+# Turunkan sedikit temperature agar dia lebih fokus dan tidak terlalu berimajinasi
+PARAMETER temperature 0.6
+
+# Turunkan repeat_penalty agar dia bisa merespons sapaan umum tanpa error
+PARAMETER repeat_penalty 1.05
+
+# --- TEMPLATE QWEN (KUNCI ANTI-AUTOCOMPLETE) ---
+TEMPLATE """{{ if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{ end }}<|im_start|>assistant
+{{ .Response }}<|im_end|>
+"""
+
+# --- SYSTEM PROMPT ---
+SYSTEM """Kamu adalah asisten AI yang ramah, asik, dan komunikatif. 
+Selalu gunakan kata ganti 'Aku' untuk dirimu dan 'Kamu' untuk user. 
+Gaya bahasamu santai tapi tetap informatif.
+
+ATURAN WAJIB:
+1. Jawab HANYA pertanyaan yang ditanyakan oleh user. JANGAN menyambung kalimat user atau membuat percakapan fiktif.
+2. Jika diberikan 'Konteks Dokumen', jawab HANYA berdasarkan konteks tersebut. DILARANG KERAS mengarang informasi di luar konteks.
+3. Jika jawaban tidak ada di dalam dokumen, jawab dengan jujur: 'Maaf ya, aku nggak nemu info itu di dokumen.'
+4. Jawablah dengan natural layaknya teman ngobrol, jangan terlalu kaku, tapi berhentilah bicara setelah inti jawaban tersampaikan."""
