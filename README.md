@@ -14,7 +14,7 @@ project_rag/
 ```
 
 ## ⚙️ Persyaratan Sistem
-Pastikan sistem kamu sudah terinstal perangkat lunak berikut:
+Pastikan sistem sudah terinstal perangkat lunak berikut:
 1. **Node.js** (v18 atau lebih baru)
 2. **Python** (v3.10 atau lebih baru)
 3. [**Ollama**](https://ollama.com/download/windows)
