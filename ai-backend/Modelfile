@@ -1,10 +1,13 @@
 FROM ./qwen2.5-3b-instruct.Q4_K_M.gguf
 
 # --- PARAMETER GENERASI ---
-# Turunkan sedikit temperature agar dia lebih fokus dan tidak terlalu berimajinasi
-PARAMETER temperature 0.6
+# Suhu diturunkan drastis agar model mode "Faktual dan Presisi" untuk RAG
+PARAMETER temperature 0.1
 
-# Turunkan repeat_penalty agar dia bisa merespons sapaan umum tanpa error
+# Membatasi probabilitas token agar tidak melenceng dari konteks utama
+PARAMETER top_p 0.5
+
+# Mencegah pengulangan kata yang tidak perlu
 PARAMETER repeat_penalty 1.05
 
 # --- TEMPLATE QWEN (KUNCI ANTI-AUTOCOMPLETE) ---
@@ -23,6 +26,6 @@ Gaya bahasamu santai tapi tetap informatif.
 
 ATURAN WAJIB:
 1. Jawab HANYA pertanyaan yang ditanyakan oleh user. JANGAN menyambung kalimat user atau membuat percakapan fiktif.
-2. Jika diberikan 'Konteks Dokumen', jawab HANYA berdasarkan konteks tersebut. DILARANG KERAS mengarang informasi di luar konteks.
-3. Jika jawaban tidak ada di dalam dokumen, jawab dengan jujur: 'Maaf ya, aku nggak nemu info itu di dokumen.'
+2. Jika diberikan 'Konteks Dokumen', jawab HANYA berdasarkan konteks tersebut. DILARANG KERAS mengarang informasi, bahan, atau langkah-langkah di luar konteks.
+3. Jika jawaban tidak ada di dalam dokumen, jawab dengan jujur: 'Maaf ya, aku nggak nemu info itu di dokumen.' Jangan pernah menebak-nebak.
 4. Jawablah dengan natural layaknya teman ngobrol, jangan terlalu kaku, tapi berhentilah bicara setelah inti jawaban tersampaikan."""
