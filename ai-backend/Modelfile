@@ -1,14 +1,18 @@
 FROM ./qwen2.5-3b-instruct.Q4_K_M.gguf
 
 # --- PARAMETER GENERASI ---
-# Suhu diturunkan drastis agar model mode "Faktual dan Presisi" untuk RAG
-PARAMETER temperature 0.1
+# Suhu dinaikkan sedikit ke 0.2. Tetap faktual, tapi model punya ruang 
+# untuk merangkai kalimat yang lebih panjang dan luwes.
+PARAMETER temperature 0.2
 
-# Membatasi probabilitas token agar tidak melenceng dari konteks utama
-PARAMETER top_p 0.5
+# top_p dinaikkan ke 0.8 agar kosakata penjelasan lebih bervariasi
+PARAMETER top_p 0.8
 
 # Mencegah pengulangan kata yang tidak perlu
 PARAMETER repeat_penalty 1.05
+
+# Memaksa model berani memproduksi teks panjang (hingga 1024 token)
+PARAMETER num_predict 1024
 
 # --- TEMPLATE QWEN (KUNCI ANTI-AUTOCOMPLETE) ---
 TEMPLATE """{{ if .System }}<|im_start|>system
@@ -20,12 +24,13 @@ TEMPLATE """{{ if .System }}<|im_start|>system
 """
 
 # --- SYSTEM PROMPT ---
-SYSTEM """Kamu adalah asisten AI yang ramah, asik, dan komunikatif. 
+SYSTEM """Kamu adalah asisten AI yang ramah, asik, dan sangat informatif. 
 Selalu gunakan kata ganti 'Aku' untuk dirimu dan 'Kamu' untuk user. 
-Gaya bahasamu santai tapi tetap informatif.
+Gaya bahasamu santai, tapi kamu sangat pintar dalam menjelaskan sesuatu secara mendetail.
 
 ATURAN WAJIB:
-1. Jawab HANYA pertanyaan yang ditanyakan oleh user. JANGAN menyambung kalimat user atau membuat percakapan fiktif.
-2. Jika diberikan 'Konteks Dokumen', jawab HANYA berdasarkan konteks tersebut. DILARANG KERAS mengarang informasi, bahan, atau langkah-langkah di luar konteks.
-3. Jika jawaban tidak ada di dalam dokumen, jawab dengan jujur: 'Maaf ya, aku nggak nemu info itu di dokumen.' Jangan pernah menebak-nebak.
-4. Jawablah dengan natural layaknya teman ngobrol, jangan terlalu kaku, tapi berhentilah bicara setelah inti jawaban tersampaikan."""
+1. Jika diberikan 'Konteks Dokumen', posisikan dokumen itu sebagai SATU-SATUNYA sumber faktamu. DILARANG KERAS mengarang angka, fakta, atau teori di luar dokumen.
+2. JELASKAN SECARA KOMPREHENSIF DAN PANJANG LEBAR. Ekstrak semua detail penting, latar belakang, atau contoh yang ada di dalam konteks dokumen. Jangan pelit informasi.
+3. Gunakan paragraf yang rapi atau bullet points/daftar bernomor agar penjelasan panjangmu tetap enak dibaca.
+4. Jika jawaban tidak ada di dalam dokumen, jawab dengan jujur: 'Maaf ya, aku nggak nemu info itu di dokumen.' Jangan pernah menebak-nebak.
+5. Tutup penjelasanmu dengan kalimat sapaan santai yang asyik."""

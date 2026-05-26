@@ -34,63 +34,75 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
-    # Memulai timer untuk logging waktu respons
     start_time = time.time()
-
-    # Hashing untuk Prompt Caching (Standarisasi input)
     user_input = request.message.strip().lower()
     cache_key = hashlib.md5(user_input.encode('utf-8')).hexdigest()
 
-    # CACHE HIT untuk cek pertanyaan sudah ada di cache
     if cache_key in PROMPT_CACHE:
         process_time = time.time() - start_time
         cached_reply = PROMPT_CACHE[cache_key]
         return {"reply": f"{cached_reply}\n\n*(⚡ Diambil dari Cache dalam {process_time:.4f} detik)*"}
 
     try:
-        llm = Ollama(model="june-qwen")
+        # Inisialisasi model Ollama
+        # Pastikan nama model ("SLM_AI") sudah sesuai dengan yang kamu buat di terminal
+        llm = Ollama(
+            model="SLM_AI",
+            temperature=0.2,
+            num_predict=1024
+        )
         context = ""
+        is_rag_mode = False
 
-        # Cek apakah folder database ada dan tidak kosong
+        # 1. BYPASS THRESHOLD & LANGSUNG GUNAKAN MMR
         if os.path.exists(persist_directory) and os.listdir(persist_directory):
             try:
                 vector_db = Chroma(persist_directory=persist_directory, embedding_function=embeddings)
-                
-                # Cari potongan teks paling relevan
-                docs = vector_db.similarity_search(request.message, k=3)
-                
-                # Tambahkan ambang batas (threshold) sederhana 
-                # Agar tidak semua chat dipaksa nyambung ke PDF
-                context = "\n".join([doc.page_content for doc in docs])
+
+                # Tarik 3 dokumen paling relevan dan beragam secara paksa (tanpa threshold)
+                mmr_docs = vector_db.max_marginal_relevance_search(
+                    request.message, k=3, fetch_k=10
+                )
+
+                # Pastikan dokumen berhasil ditarik
+                if mmr_docs:
+                    context = "\n\n".join([doc.page_content for doc in mmr_docs])
+                    is_rag_mode = True
+                    
             except Exception as e:
                 print(f"Database ada tapi gagal dibaca: {e}")
 
-        # Susun Prompt berdasarkan kondisi
-        if context:
-            # Mode RAG: Beri tanda jelas mana yang Konteks, mana yang Pertanyaan
-            prompt = f"""Konteks Dokumen:
-            {context}
+        # 2. STRUKTUR PROMPT (Perhatikan teks diratakan ke kiri agar model tidak bingung membaca spasi)
+        if is_rag_mode:
+            prompt = f"""Kamu adalah June, asisten AI yang santai dan ramah. Gunakan kata ganti "aku" dan "kamu".
 
-            Pertanyaan User: {request.message}
+[SUMBER INFORMASI DARI DATABASE]:
+{context}
 
-            Instruksi: 
-            1. Kamu adalah asisten AI yang teliti. Jawablah menggunakan gaya santai (aku-kamu).
-            2. JAWAB HANYA BERDASARKAN "Konteks Dokumen" di atas. JANGAN menambahkan informasi, bahan, atau langkah dari luar dokumen.
-            3. Jika jawaban tidak ditemukan di dalam Konteks Dokumen, katakan dengan jujur: "Maaf, aku nggak nemuin info itu di dokumen yang kamu kasih." JANGAN MENGARANG JAWABAN.
-            4. Gunakan **bullet points** atau daftar bernomor jika menjelaskan resep atau langkah-langkah.
-            5. Pastikan kalimat terakhir menutup penjelasan dengan ramah."""
+[PERTANYAAN USER]: 
+{request.message}
+
+Instruksi WAJIB untuk June:
+1. Jawab pertanyaan user HANYA berdasarkan [SUMBER INFORMASI DARI DATABASE] di atas.
+2. JELASKAN SECARA DETAIL DAN KOMPREHENSIF. Jabarkan semua informasi, alasan, atau contoh penting yang ada di sumber dokumen. Jangan pelit kata.
+3. WAJIB 100% menggunakan gaya bahasa santai sehari-hari (aku/kamu). JANGAN pernah menggunakan bahasa kaku, formal, atau seperti robot.
+4. Susun jawabanmu menjadi beberapa paragraf yang rapi atau gunakan bullet points agar enak dibaca.
+5. Jika informasi sama sekali tidak ada di dokumen, bilang dengan santai bahwa kamu tidak menemukan datanya.
+6. Tutup penjelasanmu dengan kalimat sapaan yang asyik di akhir."""
         else:
-            # Mode Chat Biasa (Bypass)
-            prompt = f"Pertanyaan User: {request.message}"
+            prompt = f"""Kamu adalah June, asisten AI yang santai (aku/kamu).    
+
+Pertanyaan: {request.message}
+Instruksi: Berikan jawaban yang panjang, detail, dan asyik untuk dibaca."""
         
-        # Generate jawaban dari Qwen
+        # Generate jawaban
         response = llm.invoke(prompt)
 
         # SIMPAN KE CACHE
         PROMPT_CACHE[cache_key] = response
 
         process_time = time.time() - start_time
-        return {"reply": f"{response}\n\n*(🤖 Dijawab oleh Qwen dalam {process_time:.2f} detik)*"}
+        return {"reply": f"{response}\n\n*(🤖 Dijawab oleh model dalam {process_time:.2f} detik)*"}
 
     except Exception as e:
         print(f"Error: {e}")
