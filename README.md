@@ -115,7 +115,7 @@ Agar RAGChat bekerja dengan sempurna, ketiga komponen ini berjalan secara parale
    dan disimpan ke **ChromaDB**.
 5. Jika itu pertanyaan chat, Backend mencari potongan teks relevan dari ChromaDB, menggabungkannya
    dengan pertanyaan pengguna, dan mengirimkan *Prompt* utuh ke Ollama.
-7. **Ollama / Llama.cpp (Port 11434):** Menjalankan model `june-qwen` secara lokal, memproses *Prompt*
+7. **Ollama / Llama.cpp (Port 11434):** Menjalankan model `SLM_AI` secara lokal, memproses *Prompt*
    yang berisi konteks dari Backend, dan mengembalikan jawaban akhir untuk diteruskan kembali ke layar pengguna.
 
 ## ⚠️ Catatan Penting
