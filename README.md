@@ -1,77 +1,83 @@
-```markdown
-RAGChat - AI Research Assistant
+
+### RAGChat - AI Research Assistant
 
 Proyek ini adalah implementasi sistem Retrieval-Augmented Generation (RAG) berbasis monorepo yang memadukan
 antarmuka chatbot modern dengan backend AI lokal. Sistem ini dirancang untuk membaca dan menganalisis
 dokumen PDF serta menjawab pertanyaan secara interaktif menggunakan Small Language Model (SLM).
 
-🗂️ Struktur Direktori
-
-
+```markdown
+# Struktur Direktori
 project_rag/
 ├── ai-backend/          # Backend FastAPI (RAG, ChromaDB, Integrasi Model)
 └── chatbot-frontend/    # Frontend Next.js (UI Chatbot interaktif)
 ```
 
-## ⚙️ Persyaratan Sistem
+## Persyaratan Sistem
 Pastikan sistem sudah terinstal perangkat lunak berikut:
 1. **Node.js** (v18 atau lebih baru)
-2. **Python** (v3.10 atau lebih baru)
+2. **Python** (v3.11 atau lebih baru)
 3. [**Ollama**](https://ollama.com/download/windows)
 4. **Git**
 
 ---
 
-## 🖥️ System Requirements
 1. Spesifikasi Minimum (Running on CPU)
 * **Prosesor:** Intel Core i5 Gen 10 / AMD Ryzen 5 3000 Series.
 * **RAM:** 8 GB (Minimal sisa RAM bebas 4 GB untuk model & backend).
 * **Penyimpanan:** ruang kosong minimal 5 GB.
 
-### 2. Spesifikasi Rekomendasi (Running on GPU)
+2. Spesifikasi Rekomendasi (Running on GPU)
 * **Prosesor:** Intel Core i7 / AMD Ryzen 7 Series terbaru.
 * **RAM:** 16 GB (Sangat disarankan untuk stabilitas *monorepo*).
 * **GPU:** NVIDIA RTX 3050 / 4050 (atau lebih tinggi) dengan **VRAM 4 GB+**.
 * **Penyimpanan:** ruang kosong minimal 5 GB.
 
----
-
-## 🚀 Panduan Instalasi & Menjalankan Sistem
+## Panduan Instalasi & Menjalankan Sistem
 
 ### 1. Unduh Model GGUF
 Proyek ini menggunakan model Qwen yang sudah disesuaikan formatnya untuk berjalan secara lokal.
-1. Buka tautan repositori: [RamIsFine/Qwen-Model](https://huggingface.co/RamIsFine/Qwen-Model)
-2. Unduh file ber-ekstensi `.gguf` (misalnya `qwen2.5-3b-instruct.Q4_K_M.gguf`).
+1. Buka tautan repositori: [RamIsFine/Qwen-Model](https://huggingface.co/RamIsFine/Qwen-Model/tree/main)
+2. Unduh file ber-ekstensi `.gguf` (Sesuai model, `Qwen3.5-4B.Q4_K_M.gguf`).
 3. Pindahkan file `.gguf` tersebut ke dalam folder `ai-backend/`.
 
 ### 2. Konfigurasi Model AI (Ollama)
-Model perlu didaftarkan ke sistem Ollama agar bisa menerima instruksi khusus (seperti RAG).
+Model perlu didaftarkan ke sistem Ollama agar server FastApi bisa menerima model.
 1. Buka terminal dan arahkan ke folder backend:
    ```bash
    cd ai-backend
    ```
 2. Bangun model ke dalam sistem Ollama menggunakan `Modelfile` yang sudah ada:
    ```bash
-   ollama create june-qwen -f Modelfile
+   ollama create qwen_slm -f Modelfile
    ```
 3. (Opsional) Uji coba model di terminal untuk memastikan berhasil dimuat:
    ```bash
-   ollama run june-qwen
+   ollama run qwen_slm
    ```
    *(Ketik `/bye` untuk keluar).*
+
 
 ### 3. Menjalankan Backend (FastAPI)
 Backend mengelola pemrosesan PDF, penyimpanan vektor, dan komunikasi dengan AI.
 1. Masih di dalam folder `ai-backend`, buat dan aktifkan *Virtual Environment*:
    ```bash
    python -m venv venv
-   
-   # Pengguna Windows:
-   venv\Scripts\activate
-   
-   # Pengguna Mac/Linux:
-   source venv/bin/activate
    ```
+   Di PowerShell: 
+      ```bash
+      .\venv\Scripts\Activate.ps1
+      ```
+
+   Di Command Prompt (CMD):
+      ```bash
+      venv\Scripts\activate
+      ```
+
+   Di Git Bash / Terminal Linux:  
+      ```bash
+      source venv/Scripts/activate
+      ```
+
 2. Instal dependensi Python:
    ```bash
    pip install -r requirements.txt
@@ -116,4 +122,3 @@ Agar RAGChat bekerja dengan sempurna, ketiga komponen ini berjalan secara parale
 * File `.gguf` dan direktori `chroma_db/` diabaikan oleh Git (melalui `.gitignore`) karena ukurannya yang besar.
   Jika melakukan *clone* proyek ini di komputer baru, model wajib diunduh ulang dari Hugging Face.
 * Pastikan aplikasi Ollama selalu berjalan di *background* sistem operasi sebelum menyalakan server backend.
-```

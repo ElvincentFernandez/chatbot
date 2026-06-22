@@ -32,13 +32,12 @@ export default function Home() {
       });
       const data = await res.json();
 
-      // Kasih notifikasi ke chat kalau Qwen sudah belajar
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now().toString(),
           role: "assistant",
-          content: `Sip! Qwen sudah baca file "${file.name}". Sekarang kamu bisa tanya-tanya soal isinya ya!`,
+          content: `Sip! Aku udah baca file "${file.name}". Sekarang kamu bisa tanya-tanya soal isinya ya!`,
           timestamp: new Date(),
         },
       ]);
@@ -53,7 +52,6 @@ export default function Home() {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
-    // Tambahkan pesan user ke UI segera untuk feedback cepat
     const userMessage: Message = {
       id: Date.now().toString(),
       role: "user",
@@ -61,13 +59,21 @@ export default function Home() {
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
-    const currentInput = input; // Simpan input sebelum di-clear
+    const currentInput = input;
     setInput("");
+    
+    const assistantMessageId = (Date.now() + 1).toString();
+    const initialAssistantMessage: Message = {
+      id: assistantMessageId,
+      role: "assistant",
+      content: "", 
+      timestamp: new Date(),
+    };
+
+    setMessages((prev) => [...prev, userMessage, initialAssistantMessage]);
     setIsLoading(true);
 
     try {
-      // Menghubungkan ke FastAPI untuk mendapatkan jawaban dari Model
       const response = await fetch("http://localhost:8000/api/chat", {
         method: "POST",
         headers: {
@@ -76,28 +82,38 @@ export default function Home() {
         body: JSON.stringify({ message: currentInput }),
       });
 
-      if (!response.ok) throw new Error("Gagal konek ke Qwen");
+      if (!response.ok) throw new Error("Gagal konek ke June");
+      if (!response.body) throw new Error("Tidak ada stream dari backend!");
 
-      const data = await response.json();
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let fullText = "";
 
-      // Tambah jawaban Model ke UI
-      const botMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: data.reply, // Ambil 'reply' dari FastAPI
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, botMessage]);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        fullText += chunk;
+
+        setMessages((prev) => {
+          const updated = [...prev];
+          const lastIndex = updated.length - 1;
+          if (updated[lastIndex].id === assistantMessageId) {
+            updated[lastIndex] = { ...updated[lastIndex], content: fullText };
+          }
+          return updated;
+        });
+      }
     } catch (error) {
       console.error("Error:", error);
-      // Tambah pesan error ke chat agar user tahu
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now().toString(),
           role: "assistant",
           content:
-            "Aduh sorry, koneksi ke Qwen putus nih. Cek apakah Python backend sudah jalan di port 8000 ya!",
+            "Aduh sorry, koneksi ke sistem putus nih. Cek apakah Python backend (main.py) kamu sudah jalan di port 8000 ya!",
           timestamp: new Date(),
         },
       ]);
@@ -139,7 +155,6 @@ export default function Home() {
         <div className="flex-1 overflow-y-auto">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center px-4 py-8">
-              {/* Empty State */}
               <div className="max-w-2xl w-full text-center">
                 <div className="mb-8">
                   <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center mx-auto mb-4">
@@ -154,7 +169,6 @@ export default function Home() {
                   </p>
                 </div>
 
-                {/* Feature Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
                   {features.map((feature, idx) => {
                     const Icon = feature.icon;
@@ -175,7 +189,6 @@ export default function Home() {
                   })}
                 </div>
 
-                {/* Prompt Suggestions */}
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground mb-3">
                     Try asking about:
@@ -201,53 +214,65 @@ export default function Home() {
             </div>
           ) : (
             <div className="max-w-4xl mx-auto w-full px-4 py-8 space-y-6 pt-16 lg:pt-8">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex gap-4 ${
-                    message.role === "user" ? "justify-end" : "justify-start"
-                  }`}
-                >
-                  {message.role === "assistant" && (
-                    <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0 mt-1">
-                      <MessageCircle
-                        size={16}
-                        className="text-primary-foreground"
-                      />
-                    </div>
-                  )}
+              {messages.map((message) => {
+                // Hapus tag <think> jika model secara native masih mengeluarkannya
+                const cleanContent = message.content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+                // TAMBAHKAN 3 BARIS INI 
+                // Sembunyikan bubble chat jika isinya masih kosong (sedang menunggu stream pertama masuk)
+                if (message.role === "assistant" && message.content === "") {
+                  return null;
+                }
+
+                return (
                   <div
-                    className={`max-w-xs md:max-w-2xl px-4 py-3 rounded-lg ${
-                      message.role === "user"
-                        ? "bg-primary text-primary-foreground rounded-br-none"
-                        : "bg-card text-foreground border border-border rounded-bl-none"
+                    key={message.id}
+                    className={`flex gap-4 ${
+                      message.role === "user" ? "justify-end" : "justify-start"
                     }`}
                   >
-                    <div className="text-sm md:text-base leading-relaxed">
-                      {message.role === "assistant" ? (
-                        <div className="[&>p]:mb-2 [&>ul]:list-disc [&>ul]:ml-5 [&>ol]:list-decimal [&>ol]:ml-5 [&>li]:mb-1">
-                          <ReactMarkdown>{message.content}</ReactMarkdown>
-                        </div>
-                      ) : (
-                        <p>{message.content}</p>
-                      )}
-                    </div>
-                    <span
-                      className={`text-xs mt-2 block ${
+                    {message.role === "assistant" && (
+                      <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0 mt-1">
+                        <MessageCircle
+                          size={16}
+                          className="text-primary-foreground"
+                        />
+                      </div>
+                    )}
+                    <div
+                      className={`max-w-[90%] md:max-w-3xl px-4 py-3 rounded-lg ${
                         message.role === "user"
-                          ? "text-primary-foreground/70"
-                          : "text-muted-foreground"
+                          ? "bg-primary text-primary-foreground rounded-br-none"
+                          : "bg-card text-foreground border border-border rounded-bl-none shadow-sm"
                       }`}
                     >
-                      {message.timestamp.toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
+                      <div className="text-sm md:text-base leading-relaxed">
+                        {message.role === "assistant" ? (
+                          <div className="[&>p]:mb-2 [&>ul]:list-disc [&>ul]:ml-5 [&>ol]:list-decimal [&>ol]:ml-5 [&>li]:mb-1">
+                            <ReactMarkdown>{cleanContent}</ReactMarkdown>
+                          </div>
+                        ) : (
+                          <p>{message.content}</p>
+                        )}
+                      </div>
+                      <span
+                        className={`text-xs mt-2 block ${
+                          message.role === "user"
+                            ? "text-primary-foreground/70"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {message.timestamp.toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
-              {isLoading && (
+                );
+              })}
+              
+              {isLoading && messages[messages.length - 1]?.content === "" && (
                 <div className="flex gap-4 justify-start">
                   <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0 mt-1">
                     <MessageCircle
@@ -255,7 +280,7 @@ export default function Home() {
                       className="text-primary-foreground animate-pulse"
                     />
                   </div>
-                  <div className="bg-card border border-border rounded-lg rounded-bl-none px-4 py-3">
+                  <div className="bg-card border border-border rounded-lg rounded-bl-none px-4 py-3 shadow-sm">
                     <div className="flex gap-2">
                       <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" />
                       <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce delay-100" />
@@ -275,7 +300,6 @@ export default function Home() {
               onSubmit={handleSendMessage}
               className="flex gap-3 items-center"
             >
-              {/* Tombol Upload Baru */}
               <label className="cursor-pointer p-2 hover:bg-secondary rounded-full transition-colors">
                 <Database size={24} className="text-muted-foreground" />
                 <input
@@ -290,7 +314,7 @@ export default function Home() {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask me about RAG, prompt caching, or SLM..."
+                placeholder="Tanya soal dokumen atau AI..."
                 className="flex-1 px-4 py-3 rounded-lg bg-input border border-border text-foreground focus:outline-none focus:border-primary transition-colors"
               />
               <button
@@ -302,8 +326,7 @@ export default function Home() {
               </button>
             </form>
             <p className="text-xs text-muted-foreground mt-2 text-center">
-              This is a thesis project combining RAG, prompt caching, and Small
-              Language Models
+              This is a thesis project combining RAG, prompt caching, and Small Language Models
             </p>
           </div>
         </div>

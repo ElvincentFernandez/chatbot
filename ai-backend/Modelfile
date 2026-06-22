@@ -1,36 +1,18 @@
-FROM ./qwen2.5-3b-instruct.Q4_K_M.gguf
+# Arahkan ke file GGUF yang baru saja kamu download
+FROM ./Qwen3.5-4B.Q4_K_M.gguf
 
-# --- PARAMETER GENERASI ---
-# Suhu dinaikkan sedikit ke 0.2. Tetap faktual, tapi model punya ruang 
-# untuk merangkai kalimat yang lebih panjang dan luwes.
-PARAMETER temperature 0.2
-
-# top_p dinaikkan ke 0.8 agar kosakata penjelasan lebih bervariasi
-PARAMETER top_p 0.8
-
-# Mencegah pengulangan kata yang tidak perlu
-PARAMETER repeat_penalty 1.05
-
-# Memaksa model berani memproduksi teks panjang (hingga 1024 token)
+# Parameter bawaan agar responsnya tidak looping dan kreatif
+PARAMETER temperature 0.3
 PARAMETER num_predict 1024
+PARAMETER repeat_penalty 1.15
 
-# --- TEMPLATE QWEN (KUNCI ANTI-AUTOCOMPLETE) ---
-TEMPLATE """{{ if .System }}<|im_start|>system
+# Format ChatML wajib untuk model Qwen
+TEMPLATE """<|im_start|>system
 {{ .System }}<|im_end|>
-{{ end }}{{ if .Prompt }}<|im_start|>user
+<|im_start|>user
 {{ .Prompt }}<|im_end|>
-{{ end }}<|im_start|>assistant
-{{ .Response }}<|im_end|>
+<|im_start|>assistant
 """
 
-# --- SYSTEM PROMPT ---
-SYSTEM """Kamu adalah asisten AI yang ramah, asik, dan sangat informatif. 
-Selalu gunakan kata ganti 'Aku' untuk dirimu dan 'Kamu' untuk user. 
-Gaya bahasamu santai, tapi kamu sangat pintar dalam menjelaskan sesuatu secara mendetail.
-
-ATURAN WAJIB:
-1. Jika diberikan 'Konteks Dokumen', posisikan dokumen itu sebagai SATU-SATUNYA sumber faktamu. DILARANG KERAS mengarang angka, fakta, atau teori di luar dokumen.
-2. JELASKAN SECARA KOMPREHENSIF DAN PANJANG LEBAR. Ekstrak semua detail penting, latar belakang, atau contoh yang ada di dalam konteks dokumen. Jangan pelit informasi.
-3. Gunakan paragraf yang rapi atau bullet points/daftar bernomor agar penjelasan panjangmu tetap enak dibaca.
-4. Jika jawaban tidak ada di dalam dokumen, jawab dengan jujur: 'Maaf ya, aku nggak nemu info itu di dokumen.' Jangan pernah menebak-nebak.
-5. Tutup penjelasanmu dengan kalimat sapaan santai yang asyik."""
+# System message default (akan ditimpa oleh prompt RAG di main.py)
+SYSTEM """Kamu adalah qwen, asisten AI yang cerdas, santai, dan ramah."""

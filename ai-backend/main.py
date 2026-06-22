@@ -1,8 +1,10 @@
 import os
 import time
-import hashlib
+import math
+import asyncio
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from langchain_community.llms import Ollama
 from langchain_community.vectorstores import Chroma
@@ -14,12 +16,21 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 app = FastAPI()
 
 # Inisialisasi In-Memory Prompt Cache
-PROMPT_CACHE = {}
+PROMPT_CACHE = []
+CACHE_THRESHOLD = 0.95 # 95% Mirip baru dianggap sama
+
+# Fungsi untuk menghitung kemiripan makna tanpa library tambahan (murni Python)
+def calculate_cosine_similarity(vec1, vec2):
+    dot_product = sum(a * b for a, b in zip(vec1, vec2))
+    norm1 = math.sqrt(sum(a * a for a in vec1))
+    norm2 = math.sqrt(sum(b * b for b in vec2))
+    if norm1 == 0 or norm2 == 0: return 0.0
+    return dot_product / (norm1 * norm2)
 
 # Izinkan Frontend Next.js mengakses API ini
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"], # Port default Next.js
+    allow_origins=["http://localhost:3000"], # Port default frontend
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -36,20 +47,34 @@ class ChatRequest(BaseModel):
 async def chat_endpoint(request: ChatRequest):
     start_time = time.time()
     user_input = request.message.strip().lower()
-    cache_key = hashlib.md5(user_input.encode('utf-8')).hexdigest()
+    query_embedding = embeddings.embed_query(user_input)
 
-    if cache_key in PROMPT_CACHE:
-        process_time = time.time() - start_time
-        cached_reply = PROMPT_CACHE[cache_key]
-        return {"reply": f"{cached_reply}\n\n*(⚡ Diambil dari Cache dalam {process_time:.4f} detik)*"}
+    # FASE SEMANTIC CACHING :
+    # Ubah teks input menjadi vektor
+    query_embedding = embeddings.embed_query(user_input)
+    
+    # 1. FASE CACHE (Stream Simulasi)
+    # Cari di memori cache apakah ada pertanyaan dengan distance terdekat
+    for cached_item in PROMPT_CACHE:
+        sim_score = calculate_cosine_similarity(query_embedding, cached_item["embedding"])
+        if sim_score >= CACHE_THRESHOLD:
+            async def stream_cache():
+                # Simulasi typing dari cache
+                words = cached_item['response'].split(" ")
+                for word in words:
+                    yield word + " "
+                    await asyncio.sleep(0.01) 
+                yield f"\n\n*(⚡ Diambil dari Semantic Cache - {sim_score*100:.1f}% dalam {time.time() - start_time:.4f} detik)*"
+            
+            return StreamingResponse(stream_cache(), media_type="text/plain")
 
     try:
-        # Inisialisasi model Ollama
-        # Pastikan nama model ("SLM_AI") sudah sesuai dengan yang kamu buat di terminal
+        # 2. SETUP MODEL & RAG
         llm = Ollama(
-            model="SLM_AI",
+            model="qwen_slm", # Pastikan nama model ("qwen_slm") sudah sesuai dengan yang dibuat di Modelfile
             temperature=0.2,
-            num_predict=1024
+            num_predict=2048,
+            repeat_penalty=1.15
         )
         context = ""
         is_rag_mode = False
@@ -72,9 +97,9 @@ async def chat_endpoint(request: ChatRequest):
             except Exception as e:
                 print(f"Database ada tapi gagal dibaca: {e}")
 
-        # 2. STRUKTUR PROMPT (Perhatikan teks diratakan ke kiri agar model tidak bingung membaca spasi)
+        # 2. STRUKTUR PROMPT
         if is_rag_mode:
-            prompt = f"""Kamu adalah June, asisten AI yang santai dan ramah. Gunakan kata ganti "aku" dan "kamu".
+            prompt = f"""Kamu adalah qwen, asisten AI yang santai dan ramah.
 
 [SUMBER INFORMASI DARI DATABASE]:
 {context}
@@ -82,31 +107,36 @@ async def chat_endpoint(request: ChatRequest):
 [PERTANYAAN USER]: 
 {request.message}
 
-Instruksi WAJIB untuk June:
-1. Jawab pertanyaan user HANYA berdasarkan [SUMBER INFORMASI DARI DATABASE] di atas.
-2. JELASKAN SECARA DETAIL DAN KOMPREHENSIF. Jabarkan semua informasi, alasan, atau contoh penting yang ada di sumber dokumen. Jangan pelit kata.
-3. WAJIB 100% menggunakan gaya bahasa santai sehari-hari (aku/kamu). JANGAN pernah menggunakan bahasa kaku, formal, atau seperti robot.
-4. Susun jawabanmu menjadi beberapa paragraf yang rapi atau gunakan bullet points agar enak dibaca.
-5. Jika informasi sama sekali tidak ada di dokumen, bilang dengan santai bahwa kamu tidak menemukan datanya.
-6. Tutup penjelasanmu dengan kalimat sapaan yang asyik di akhir."""
+[ATURAN WAJIB]:
+1. PERAN: Kamu adalah asisten AI yang cerdas dan santai.
+2. GAYA BAHASA: WAJIB gunakan kata "aku" dan "kamu". Jangan kaku.
+3. ANTI-HALUSINASI: Jawab HANYA dari [SUMBER INFORMASI].
+4. Susun jawaban akhir dengan rapi menggunakan bullet points jika perlu.
+5. Jika hanya percakapan seperti bertanya kabar atau sapaan, tidak perlu mencari ke [Sumber Informasi]""" 
         else:
-            prompt = f"""Kamu adalah June, asisten AI yang santai (aku/kamu).    
-
-Pertanyaan: {request.message}
-Instruksi: Berikan jawaban yang panjang, detail, dan asyik untuk dibaca."""
+            prompt = f"Pertanyaan: {request.message}\nInstruksi: Berikan jawaban yang detail dan santai (gunakan kata aku/kamu)."
+        # 4. FASE GENERASI STREAMING
+        async def generate_stream():
+            full_response = ""
+            # astream() akan memuntahkan kata per kata secara real-time
+            async for chunk in llm.astream(prompt):
+                full_response += chunk
+                yield chunk  # Kirim potongan teks ke frontend seketika
         
-        # Generate jawaban
-        response = llm.invoke(prompt)
+            # SIMPAN KE CACHE SETELAH SELESAI
+            PROMPT_CACHE.append({
+                "query": user_input,
+                "embedding": query_embedding,
+                "response": full_response
+            })
+            if len(PROMPT_CACHE) > 100: PROMPT_CACHE.pop(0)
 
-        # SIMPAN KE CACHE
-        PROMPT_CACHE[cache_key] = response
-
-        process_time = time.time() - start_time
-        return {"reply": f"{response}\n\n*(🤖 Dijawab oleh model dalam {process_time:.2f} detik)*"}
-
+        # Kembalikan response streaming ke frontend
+        return StreamingResponse(generate_stream(), media_type="text/plain")
+        
     except Exception as e:
         print(f"Error: {e}")
-        raise HTTPException(status_code=500, detail="Aduh, Aku lagi pusing nih.")
+        raise HTTPException(status_code=500, detail="Aduh, aku lagi pusing nih.")
 
 @app.post("/api/upload")
 async def upload_endpoint(file: UploadFile = File(...)):
@@ -141,7 +171,7 @@ async def upload_endpoint(file: UploadFile = File(...)):
         global PROMPT_CACHE
         PROMPT_CACHE.clear()
 
-        return {"message": f"Sip! Aku sudah baca '{file.filename}'."}
+        return {"message": f"Sip! sudah dibaca '{file.filename}'."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gagal proses PDF: {str(e)}")
 
