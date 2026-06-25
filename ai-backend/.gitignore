@@ -1,0 +1,16 @@
+# Mengabaikan environment Python
+venv/
+__pycache__/
+
+# Mengabaikan database RAG (biar nggak berat)
+chroma_db/
+temp_uploads/
+
+# MENGABAIKAN MODEL GGUF (HARGA MATI)
+*.gguf
+
+# Mengabaikan file sensitif
+.env
+
+# Mengabaikan folder build llama.cpp
+llama.cpp/
