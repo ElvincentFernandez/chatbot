@@ -1,10 +1,16 @@
 # Python Backend
 ai-backend/venv/
 ai-backend/__pycache__/
-ai-backend/chroma_db/
 ai-backend/temp_uploads/
-ai-backend/*.gguf
 ai-backend/.env
+
+# Model GGUF (ukuran besar, diunduh manual - lihat README)
+ai-backend/models/
+
+# State RAG lokal (dibuat ulang otomatis dari PDF yang di-upload)
+ai-backend/chroma_db/
+ai-backend/parent_docstore/
+ai-backend/documents_registry.json
 
 # Next.js Frontend
 chatbot-frontend/node_modules/

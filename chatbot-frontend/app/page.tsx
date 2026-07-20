@@ -1,8 +1,8 @@
 "use client";
 
 import { Sidebar } from "@/components/sidebar";
-import { MessageCircle, Zap, BookOpen, Database } from "lucide-react";
-import { useState } from "react";
+import { MessageCircle, Zap, BookOpen, Database, FileText, X, ChevronDown } from "lucide-react";
+import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 
 interface Message {
@@ -16,6 +16,36 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [documents, setDocuments] = useState<string[]>([]);
+  const [activeDocument, setActiveDocument] = useState<string | null>(null);
+  const [isDocMenuOpen, setIsDocMenuOpen] = useState(false);
+
+  const fetchDocuments = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/api/documents");
+      const data = await res.json();
+      setDocuments(data.documents ?? []);
+    } catch (err) {
+      console.error("Gagal ambil daftar dokumen:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
+
+  const handleDeleteDocument = async (filename: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await fetch(`http://localhost:8000/api/documents/${encodeURIComponent(filename)}`, {
+        method: "DELETE",
+      });
+      if (activeDocument === filename) setActiveDocument(null);
+      fetchDocuments();
+    } catch (err) {
+      alert("Gagal hapus dokumen.");
+    }
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -32,6 +62,9 @@ export default function Home() {
       });
       const data = await res.json();
 
+      await fetchDocuments();
+      setActiveDocument(file.name); // otomatis jadiin dokumen yang baru di-upload sebagai dokumen aktif
+
       setMessages((prev) => [
         ...prev,
         {
@@ -45,6 +78,7 @@ export default function Home() {
       alert("Gagal upload file ke backend.");
     } finally {
       setIsLoading(false);
+      e.target.value = ""; // biar bisa upload file yang sama lagi kalau perlu
     }
   };
 
@@ -79,7 +113,7 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: currentInput }),
+        body: JSON.stringify({ message: currentInput, document: activeDocument }),
       });
 
       if (!response.ok) throw new Error("Gagal konek ke June");
@@ -296,6 +330,63 @@ export default function Home() {
         {/* Input Area */}
         <div className="border-t border-border bg-background/80 backdrop-blur-sm">
           <div className="max-w-4xl mx-auto w-full p-4">
+            {documents.length > 0 && (
+              <div className="relative mb-3">
+                <button
+                  type="button"
+                  onClick={() => setIsDocMenuOpen((open) => !open)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs transition-colors"
+                >
+                  <FileText size={14} />
+                  <span className="max-w-[220px] truncate">
+                    {activeDocument ?? "Semua dokumen"}
+                  </span>
+                  <ChevronDown size={14} />
+                </button>
+
+                {isDocMenuOpen && (
+                  <div className="absolute bottom-full mb-2 left-0 w-72 rounded-lg border border-border bg-card shadow-lg overflow-hidden z-10">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveDocument(null);
+                        setIsDocMenuOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-secondary transition-colors ${
+                        activeDocument === null ? "bg-secondary/60 font-medium" : ""
+                      }`}
+                    >
+                      Semua dokumen
+                    </button>
+                    <div className="max-h-56 overflow-y-auto">
+                      {documents.map((docName) => (
+                        <div
+                          key={docName}
+                          onClick={() => {
+                            setActiveDocument(docName);
+                            setIsDocMenuOpen(false);
+                          }}
+                          className={`flex items-center justify-between gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-secondary transition-colors ${
+                            activeDocument === docName ? "bg-secondary/60 font-medium" : ""
+                          }`}
+                        >
+                          <span className="truncate flex-1">{docName}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteDocument(docName, e)}
+                            className="p-1 rounded hover:bg-muted flex-shrink-0"
+                            title="Hapus dokumen"
+                          >
+                            <X size={14} className="text-muted-foreground" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <form
               onSubmit={handleSendMessage}
               className="flex gap-3 items-center"
