@@ -12,6 +12,9 @@ ai-backend/chroma_db/
 ai-backend/parent_docstore/
 ai-backend/documents_registry.json
 
+# Database SQLite (users, chat sessions, messages - data lokal per instalasi)
+ai-backend/chatbot.db
+
 # Next.js Frontend
 chatbot-frontend/node_modules/
 chatbot-frontend/.next/
