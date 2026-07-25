@@ -3,6 +3,11 @@ import os
 import uuid
 from datetime import datetime
 
+# CATATAN: password disimpan plaintext (dibandingkan langsung di query SQL).
+# Aman-aman saja untuk prototipe/demo skripsi dengan akun default yang sudah
+# publik (superadmin/admin/user), tapi kalau ini pernah dipakai dengan akun
+# nyata, ganti ke hashing (mis. bcrypt/passlib) sebelum password disimpan.
+
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chatbot.db")
 
 def get_db_connection():
