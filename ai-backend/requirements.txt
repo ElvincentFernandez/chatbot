@@ -1,17 +1,18 @@
-# --- Framework & Server ---
-fastapi==0.111.0
-uvicorn==0.46.0
-python-multipart==0.0.9
-pydantic==2.13.3
+# Pre-built CPU wheel untuk llama-cpp-python (hindari build dari source / butuh compiler C++)
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 
-# --- LangChain Ecosystem ---
-langchain-community==0.4.1
-langchain-huggingface==1.2.2
-langchain-text-splitters==1.1.2
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
 
-# --- Vector Database & Embeddings ---
-chromadb==1.5.8
-sentence-transformers==5.4.1
+langchain
+langchain-community
+langchain-huggingface
+langchain-text-splitters
 
-# --- PDF Processing ---
-pypdf==6.10.2
+llama-cpp-python
+sentence-transformers
+chromadb
+
+pymupdf

@@ -1,7 +1,7 @@
 "use client";
 
 import { Sidebar } from "@/components/sidebar";
-import { MessageCircle, Zap, BookOpen, Database, Send, Square } from "lucide-react";
+import { MessageCircle, Zap, BookOpen, Database, Send, Square, FileText, X, ChevronDown, Unlock, Lock } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import { useRouter } from "next/navigation";
@@ -20,19 +20,32 @@ export default function Home() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [username, setUsername] = useState<string | null>(null);
-  
+
+  // --- State untuk fitur dokumen aktif (Parent Document Retriever scoping) ---
+  const [documents, setDocuments] = useState<string[]>([]);
+  const [activeDocument, setActiveDocument] = useState<string | null>(null);
+  const [isDocMenuOpen, setIsDocMenuOpen] = useState(false);
+
+  // --- State untuk toggle mode jawaban (strict vs general) ---
+  const [generalMode, setGeneralMode] = useState(false);
+
   const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  
+
   // Ref to track if user is near bottom of chat container
   const isNearBottomRef = useRef(true);
-  
+
   // AbortController Ref for cancelling fetch requests
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Ref to track session that was just created to prevent race condition
   const justCreatedSessionRef = useRef<string | null>(null);
+
+  const authHeader = () => {
+    const token = localStorage.getItem("token");
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
   // Authentication check
   useEffect(() => {
@@ -45,12 +58,50 @@ export default function Home() {
     }
   }, [router]);
 
+  const fetchDocuments = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    try {
+      const res = await fetch("http://localhost:8000/api/documents", {
+        headers: { ...authHeader() },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDocuments(data.documents ?? []);
+      }
+    } catch (err) {
+      console.error("Gagal ambil daftar dokumen:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (localStorage.getItem("token")) {
+      fetchDocuments();
+    }
+  }, []);
+
+  const handleDeleteDocument = async (filename: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const res = await fetch(`http://localhost:8000/api/documents/${encodeURIComponent(filename)}`, {
+        method: "DELETE",
+        headers: { ...authHeader() },
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Gagal hapus dokumen.");
+      }
+      if (activeDocument === filename) setActiveDocument(null);
+      fetchDocuments();
+    } catch (err: any) {
+      alert(err.message || "Gagal hapus dokumen.");
+    }
+  };
+
   // Handle scroll events to detect if user scrolls up
   const handleScroll = () => {
     if (!chatContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-    
-    // If user is within 150px of the bottom, consider them "near bottom"
     const isAtBottom = scrollHeight - scrollTop - clientHeight < 150;
     isNearBottomRef.current = isAtBottom;
   };
@@ -69,7 +120,6 @@ export default function Home() {
       return;
     }
 
-    // Skip fetching if this session was just created in handleSendMessage
     if (justCreatedSessionRef.current === currentSessionId) {
       justCreatedSessionRef.current = null;
       return;
@@ -81,9 +131,7 @@ export default function Home() {
 
       try {
         const res = await fetch(`http://localhost:8000/api/chat/sessions/${currentSessionId}`, {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
+          headers: { ...authHeader() },
         });
         if (res.ok) {
           const data = await res.json();
@@ -91,10 +139,9 @@ export default function Home() {
             id: msg.id,
             role: msg.role,
             content: msg.content,
-            timestamp: new Date(msg.timestamp)
+            timestamp: new Date(msg.timestamp),
           }));
-          
-          // Allow full scroll to bottom on initial load
+
           isNearBottomRef.current = true;
           setMessages(mappedMessages);
         }
@@ -120,9 +167,7 @@ export default function Home() {
     try {
       const res = await fetch("http://localhost:8000/api/upload", {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`
-        },
+        headers: { ...authHeader() },
         body: formData,
       });
 
@@ -131,7 +176,8 @@ export default function Home() {
         throw new Error(err.detail || "Gagal upload.");
       }
 
-      const data = await res.json();
+      await fetchDocuments();
+      setActiveDocument(file.name); // otomatis jadiin dokumen baru sebagai dokumen aktif
 
       setMessages((prev) => [
         ...prev,
@@ -146,6 +192,7 @@ export default function Home() {
       alert(err.message || "Gagal upload file ke backend.");
     } finally {
       setIsLoading(false);
+      e.target.value = "";
     }
   };
 
@@ -166,7 +213,6 @@ export default function Home() {
       abortControllerRef.current = null;
       setIsLoading(false);
 
-      // Ambil teks chat terakhir yang berhasil digenerate
       const lastMessage = messages[messages.length - 1];
       if (lastMessage && lastMessage.role === "assistant" && lastMessage.content.trim() && currentSessionId) {
         const token = localStorage.getItem("token");
@@ -176,12 +222,12 @@ export default function Home() {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`
+                ...authHeader(),
               },
               body: JSON.stringify({
                 session_id: currentSessionId,
-                content: lastMessage.content
-              })
+                content: lastMessage.content,
+              }),
             });
           } catch (e) {
             console.error("Gagal mengirim sinyal simpan parsial:", e);
@@ -200,25 +246,23 @@ export default function Home() {
 
     let sessionId = currentSessionId;
 
-    // 1. Create a session automatically if none exists
     if (!sessionId) {
       try {
         const createRes = await fetch("http://localhost:8000/api/chat/sessions", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
+            ...authHeader(),
           },
-          body: JSON.stringify({ title: input.substring(0, 30) + (input.length > 30 ? "..." : "") })
+          body: JSON.stringify({ title: input.substring(0, 30) + (input.length > 30 ? "..." : "") }),
         });
         if (!createRes.ok) throw new Error("Gagal membuat sesi chat baru.");
         const sessionData = await createRes.json();
         sessionId = sessionData.id;
         justCreatedSessionRef.current = sessionId;
         setCurrentSessionId(sessionId);
-        
-        // Trigger sidebar sync
-        window.dispatchEvent(new Event('sync-sessions'));
+
+        window.dispatchEvent(new Event("sync-sessions"));
       } catch (err: any) {
         alert(err.message);
         return;
@@ -234,21 +278,19 @@ export default function Home() {
 
     const currentInput = input;
     setInput("");
-    
+
     const assistantMessageId = (Date.now() + 1).toString();
     const initialAssistantMessage: Message = {
       id: assistantMessageId,
       role: "assistant",
-      content: "", 
+      content: "",
       timestamp: new Date(),
     };
 
-    // Ensure we auto scroll on sending message
     isNearBottomRef.current = true;
     setMessages((prev) => [...prev, userMessage, initialAssistantMessage]);
     setIsLoading(true);
 
-    // Initialize AbortController for this fetch
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -257,10 +299,15 @@ export default function Home() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
+          ...authHeader(),
         },
-        body: JSON.stringify({ message: currentInput, session_id: sessionId }),
-        signal: controller.signal
+        body: JSON.stringify({
+          message: currentInput,
+          session_id: sessionId,
+          document: activeDocument,
+          general_mode: generalMode,
+        }),
+        signal: controller.signal,
       });
 
       if (!response.ok) throw new Error("Gagal konek ke model AI");
@@ -308,40 +355,17 @@ export default function Home() {
   };
 
   const features = [
-    {
-      icon: Database,
-      title: "RAG Integration",
-      description: "Retrieve Augmented Generation for context-aware responses",
-    },
-    {
-      icon: Zap,
-      title: "Prompt Caching",
-      description: "Optimized token usage and faster response times",
-    },
-    {
-      icon: MessageCircle,
-      title: "SLM Powered",
-      description: "Efficient Small Language Models for thesis research",
-    },
-    {
-      icon: BookOpen,
-      title: "Research Tools",
-      description: "Built-in documentation and knowledge management",
-    },
+    { icon: Database, title: "RAG Integration", description: "Retrieve Augmented Generation for context-aware responses" },
+    { icon: Zap, title: "Prompt Caching", description: "Optimized token usage and faster response times" },
+    { icon: MessageCircle, title: "SLM Powered", description: "Efficient Small Language Models for thesis research" },
+    { icon: BookOpen, title: "Research Tools", description: "Built-in documentation and knowledge management" },
   ];
 
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar 
-        currentSessionId={currentSessionId}
-        onSelectSession={handleSelectSession}
-        onNewChat={handleNewChat}
-      />
+      <Sidebar currentSessionId={currentSessionId} onSelectSession={handleSelectSession} onNewChat={handleNewChat} />
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden pl-0 lg:pl-0">
-        
-        {/* Top Navbar */}
         <header className="h-16 border-b border-border bg-card/50 backdrop-blur-md flex items-center justify-between px-6 z-10">
           <div className="flex items-center gap-3">
             <h2 className="font-semibold text-foreground text-sm lg:text-base">
@@ -352,18 +376,11 @@ export default function Home() {
             <span className="text-xs px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 font-mono capitalize">
               Role: {userRole}
             </span>
-            <span className="text-sm font-medium text-muted-foreground hidden sm:inline">
-              Hi, {username}
-            </span>
+            <span className="text-sm font-medium text-muted-foreground hidden sm:inline">Hi, {username}</span>
           </div>
         </header>
 
-        {/* Chat Messages Area */}
-        <div 
-          ref={chatContainerRef}
-          onScroll={handleScroll}
-          className="flex-1 overflow-y-auto"
-        >
+        <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center px-4 py-8">
               <div className="max-w-2xl w-full text-center">
@@ -375,8 +392,7 @@ export default function Home() {
                     Welcome to RAGChat
                   </h1>
                   <p className="text-muted-foreground text-lg mb-8">
-                    Your intelligent research assistant powered by RAG, prompt
-                    caching, and Small Language Models
+                    Your intelligent research assistant powered by RAG, prompt caching, and Small Language Models
                   </p>
                 </div>
 
@@ -384,33 +400,19 @@ export default function Home() {
                   {features.map((feature, idx) => {
                     const Icon = feature.icon;
                     return (
-                      <div
-                        key={idx}
-                        className="p-4 rounded-lg bg-card border border-border hover:border-primary/50 transition-colors text-center"
-                      >
+                      <div key={idx} className="p-4 rounded-lg bg-card border border-border hover:border-primary/50 transition-colors text-center">
                         <Icon size={24} className="text-primary mb-2 mx-auto" />
-                        <h3 className="font-semibold text-foreground mb-1">
-                          {feature.title}
-                        </h3>
-                        <p className="text-sm text-muted-foreground">
-                          {feature.description}
-                        </p>
+                        <h3 className="font-semibold text-foreground mb-1">{feature.title}</h3>
+                        <p className="text-sm text-muted-foreground">{feature.description}</p>
                       </div>
                     );
                   })}
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground mb-3">
-                    Try asking about:
-                  </p>
+                  <p className="text-sm text-muted-foreground mb-3">Try asking about:</p>
                   <div className="flex flex-wrap gap-2 justify-center">
-                    {[
-                      "How does RAG work?",
-                      "Prompt caching techniques",
-                      "SLM vs LLM trade-offs",
-                      "Research methodology",
-                    ].map((suggestion, idx) => (
+                    {["How does RAG work?", "Prompt caching techniques", "SLM vs LLM trade-offs", "Research methodology"].map((suggestion, idx) => (
                       <button
                         key={idx}
                         onClick={() => setInput(suggestion)}
@@ -426,10 +428,9 @@ export default function Home() {
           ) : (
             <div className="max-w-4xl mx-auto w-full px-4 py-8 space-y-6">
               {messages.map((message) => {
-                // Bersihkan tag <think>, serta format teks "Thinking Process:" dan "Thought:"
                 const cleanContent = message.content
-                  .replace(/<think>[\s\S]*?<\/think>/g, '')
-                  .replace(/Thinking Process:[\s\S]*?(?=\n\n|\n[A-Z]|$)/gi, '')
+                  .replace(/<think>[\s\S]*?<\/think>/g, "")
+                  .replace(/Thinking Process:[\s\S]*?(?=\n\n|\n[A-Z]|$)/gi, "")
                   .trim();
 
                 if (message.role === "assistant" && cleanContent === "") {
@@ -437,18 +438,10 @@ export default function Home() {
                 }
 
                 return (
-                  <div
-                    key={message.id}
-                    className={`flex gap-4 ${
-                      message.role === "user" ? "justify-end" : "justify-start"
-                    }`}
-                  >
+                  <div key={message.id} className={`flex gap-4 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                     {message.role === "assistant" && (
                       <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0 mt-1">
-                        <MessageCircle
-                          size={16}
-                          className="text-primary-foreground"
-                        />
+                        <MessageCircle size={16} className="text-primary-foreground" />
                       </div>
                     )}
                     <div
@@ -467,30 +460,18 @@ export default function Home() {
                           <p className="whitespace-pre-wrap">{message.content}</p>
                         )}
                       </div>
-                      <span
-                        className={`text-xs mt-2 block ${
-                          message.role === "user"
-                            ? "text-primary-foreground/70"
-                            : "text-muted-foreground"
-                        }`}
-                      >
-                        {message.timestamp.toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                      <span className={`text-xs mt-2 block ${message.role === "user" ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                        {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
                     </div>
                   </div>
                 );
               })}
-              
+
               {isLoading && messages[messages.length - 1]?.content === "" && (
                 <div className="flex gap-4 justify-start animate-fade-in">
                   <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0 mt-1">
-                    <MessageCircle
-                      size={16}
-                      className="text-primary-foreground animate-pulse"
-                    />
+                    <MessageCircle size={16} className="text-primary-foreground animate-pulse" />
                   </div>
                   <div className="bg-card border border-border rounded-lg rounded-bl-none px-4 py-3 shadow-sm">
                     <div className="flex gap-2">
@@ -501,7 +482,7 @@ export default function Home() {
                   </div>
                 </div>
               )}
-              
+
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -510,20 +491,90 @@ export default function Home() {
         {/* Input Area */}
         <div className="border-t border-border bg-background/80 backdrop-blur-sm">
           <div className="max-w-4xl mx-auto w-full p-4">
-            <form
-              onSubmit={handleSendMessage}
-              className="flex gap-3 items-center"
-            >
-              {/* Only show PDF upload to admin / superadmin */}
-              {(userRole === "admin" || userRole === "superadmin") ? (
+            {/* Bar kontrol: dokumen aktif + toggle mode jawaban */}
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              {documents.length > 0 && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsDocMenuOpen((open) => !open)}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs transition-colors"
+                  >
+                    <FileText size={14} />
+                    <span className="max-w-[220px] truncate">{activeDocument ?? "Semua dokumen"}</span>
+                    <ChevronDown size={14} />
+                  </button>
+
+                  {isDocMenuOpen && (
+                    <div className="absolute bottom-full mb-2 left-0 w-72 rounded-lg border border-border bg-card shadow-lg overflow-hidden z-10">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveDocument(null);
+                          setIsDocMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-secondary transition-colors ${
+                          activeDocument === null ? "bg-secondary/60 font-medium" : ""
+                        }`}
+                      >
+                        Semua dokumen
+                      </button>
+                      <div className="max-h-56 overflow-y-auto">
+                        {documents.map((docName) => (
+                          <div
+                            key={docName}
+                            onClick={() => {
+                              setActiveDocument(docName);
+                              setIsDocMenuOpen(false);
+                            }}
+                            className={`flex items-center justify-between gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-secondary transition-colors ${
+                              activeDocument === docName ? "bg-secondary/60 font-medium" : ""
+                            }`}
+                          >
+                            <span className="truncate flex-1">{docName}</span>
+                            {(userRole === "admin" || userRole === "superadmin") && (
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeleteDocument(docName, e)}
+                                className="p-1 rounded hover:bg-muted flex-shrink-0"
+                                title="Hapus dokumen"
+                              >
+                                <X size={14} className="text-muted-foreground" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Toggle mode jawaban: default ketat (sesuai dokumen), bisa dilonggarkan manual */}
+              <button
+                type="button"
+                onClick={() => setGeneralMode((v) => !v)}
+                title={
+                  generalMode
+                    ? "Mode bebas: AI boleh jawab dari pengetahuan umum di luar dokumen"
+                    : "Mode ketat: AI hanya jawab dari dokumen (default, sesuai metodologi skripsi)"
+                }
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs transition-colors ${
+                  generalMode
+                    ? "bg-amber-500/15 text-amber-500 border border-amber-500/30 hover:bg-amber-500/20"
+                    : "bg-secondary hover:bg-secondary/80 text-secondary-foreground"
+                }`}
+              >
+                {generalMode ? <Unlock size={14} /> : <Lock size={14} />}
+                {generalMode ? "Mode Bebas" : "Mode Ketat (Dokumen)"}
+              </button>
+            </div>
+
+            <form onSubmit={handleSendMessage} className="flex gap-3 items-center">
+              {userRole === "admin" || userRole === "superadmin" ? (
                 <label className="cursor-pointer p-2 hover:bg-secondary rounded-full transition-colors flex-shrink-0" title="Upload PDF to RAG Database">
                   <Database size={24} className="text-purple-400 hover:text-purple-300" />
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept=".pdf"
-                    onChange={handleFileUpload}
-                  />
+                  <input type="file" className="hidden" accept=".pdf" onChange={handleFileUpload} />
                 </label>
               ) : (
                 <div className="p-2 cursor-not-allowed opacity-40 flex-shrink-0" title="User cannot upload PDF to RAG Database">
@@ -539,7 +590,7 @@ export default function Home() {
                 className="flex-1 px-4 py-3 rounded-lg bg-input border border-border text-foreground focus:outline-none focus:border-primary transition-colors"
                 disabled={isLoading}
               />
-              
+
               {isLoading ? (
                 <button
                   type="button"
