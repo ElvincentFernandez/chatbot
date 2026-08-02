@@ -211,8 +211,8 @@ export function Sidebar({ currentSessionId, onSelectSession, onNewChat }: Sideba
           )}
         </div>
 
-        {/* Navigation for Admin/Superadmin */}
-        {(role === 'admin' || role === 'superadmin') && (
+        {/* Navigation for Admin/Superadmin/Admin Client */}
+        {(role === 'admin' || role === 'superadmin' || role === 'admin_client') && (
           <div className="px-4 py-2 border-t border-sidebar-border">
             <Link 
               href="/admin" 
