@@ -47,6 +47,13 @@ export default function LoginPage() {
       localStorage.setItem("token", userData.token);
       localStorage.setItem("username", userData.username);
       localStorage.setItem("role", userData.role);
+      if (userData.client_id) {
+        localStorage.setItem("client_id", userData.client_id.toString());
+        localStorage.setItem("client_name", userData.client_name || "");
+      } else {
+        localStorage.removeItem("client_id");
+        localStorage.removeItem("client_name");
+      }
 
       router.push("/");
     } catch (err: any) {
