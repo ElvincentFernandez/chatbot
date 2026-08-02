@@ -29,7 +29,7 @@ export default function Home() {
   
   // Client selection states
   const [clients, setClients] = useState<Client[]>([]);
-  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState<number | string | null>(null);
   const [userClientId, setUserClientId] = useState<number | null>(null);
   const [userClientName, setUserClientName] = useState<string | null>(null);
   
@@ -272,7 +272,7 @@ export default function Home() {
           },
           body: JSON.stringify({ 
             title: input.substring(0, 30) + (input.length > 30 ? "..." : ""),
-            client_id: selectedClientId
+            client_id: selectedClientId === "global" ? null : selectedClientId
           })
         });
         if (!createRes.ok) throw new Error("Gagal membuat sesi chat baru.");
@@ -377,7 +377,9 @@ export default function Home() {
     }
   };
 
-  const activeClientName = clients.find(c => c.id === selectedClientId)?.name || userClientName || "";
+  const activeClientName = selectedClientId === "global" 
+    ? "General Assistant" 
+    : (clients.find(c => c.id === selectedClientId)?.name || userClientName || "");
 
   return (
     <div className="flex h-screen bg-background">
@@ -435,11 +437,10 @@ export default function Home() {
                   </p>
                 </div>
 
-                {/* Client Selection (If not bound to a client) */}
                 {!userClientId ? (
                   <div className="mb-8 text-left">
                     <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4 text-center">PILIH CLIENT DATA RAG</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       {clients.map((c) => (
                         <div
                           key={c.id}
@@ -460,6 +461,25 @@ export default function Home() {
                           )}
                         </div>
                       ))}
+                      
+                      {/* General AI Card Option */}
+                      <div
+                        onClick={() => setSelectedClientId("global")}
+                        className={`p-5 rounded-2xl border cursor-pointer transition-all hover:scale-[1.02] flex flex-col items-center text-center relative overflow-hidden ${
+                          selectedClientId === "global" 
+                            ? "bg-indigo-500/10 border-indigo-500 shadow-lg shadow-indigo-500/5" 
+                            : "bg-card border-border hover:border-slate-700"
+                        }`}
+                      >
+                        <div className="p-3 bg-slate-900 rounded-xl mb-3">
+                          <Zap className="w-8 h-8 text-yellow-400" />
+                        </div>
+                        <h4 className="font-bold text-slate-100">General AI</h4>
+                        <span className="text-[10px] uppercase font-bold text-slate-500 mt-1 tracking-wider">Asisten Umum</span>
+                        {selectedClientId === "global" && (
+                          <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-indigo-400" />
+                        )}
+                      </div>
                     </div>
                   </div>
                 ) : (

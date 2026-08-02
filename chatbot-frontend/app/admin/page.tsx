@@ -197,7 +197,13 @@ export default function AdminDashboard() {
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.detail || "Gagal membuat client.");
+        let errMsg = "Gagal membuat client.";
+        if (Array.isArray(err.detail)) {
+          errMsg = err.detail.map((e: any) => `${e.loc.join(".")}: ${e.msg}`).join(", ");
+        } else if (typeof err.detail === "string") {
+          errMsg = err.detail;
+        }
+        throw new Error(errMsg);
       }
 
       setNewClientName("");
@@ -260,7 +266,13 @@ export default function AdminDashboard() {
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.detail || "Gagal membuat user.");
+        let errMsg = "Gagal membuat user.";
+        if (Array.isArray(err.detail)) {
+          errMsg = err.detail.map((e: any) => `${e.loc.join(".")}: ${e.msg}`).join(", ");
+        } else if (typeof err.detail === "string") {
+          errMsg = err.detail;
+        }
+        throw new Error(errMsg);
       }
 
       setNewUsername("");
@@ -625,7 +637,7 @@ export default function AdminDashboard() {
             )}
 
             {/* 2.3 User Token / Account Management (Superadmin Only) */}
-            {role === "superadmin" && (
+            {(role === "superadmin" || role === "admin") && (
               <>
                 {/* Form Tambah User */}
                 <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800/80 p-6 rounded-2xl shadow-xl">
@@ -751,7 +763,7 @@ export default function AdminDashboard() {
                                 </span>
                               </td>
                               <td className="py-3 px-4 text-right">
-                                {u.username !== "superadmin" ? (
+                                {u.username !== "superadmin" && u.username !== "admin" ? (
                                   <button
                                     onClick={() => handleDeleteUser(u.id)}
                                     className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
