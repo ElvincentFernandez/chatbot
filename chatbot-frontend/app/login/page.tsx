@@ -47,6 +47,13 @@ export default function LoginPage() {
       localStorage.setItem("token", userData.token);
       localStorage.setItem("username", userData.username);
       localStorage.setItem("role", userData.role);
+      if (userData.client_id) {
+        localStorage.setItem("client_id", userData.client_id.toString());
+        localStorage.setItem("client_name", userData.client_name || "");
+      } else {
+        localStorage.removeItem("client_id");
+        localStorage.removeItem("client_name");
+      }
 
       router.push("/");
     } catch (err: any) {
@@ -138,8 +145,8 @@ export default function LoginPage() {
 
         <div className="mt-8 text-center text-xs text-slate-500 border-t border-white/5 pt-4 space-y-1">
           <p>Default Users:</p>
-          <p>Superadmin: <code className="text-slate-400">superadmin</code> / <code className="text-slate-400">super123</code></p>
-          <p>Admin: <code className="text-slate-400">admin</code> / <code className="text-slate-400">admin123</code></p>
+          <p>Admin (Global): <code className="text-slate-400">admin</code> / <code className="text-slate-400">admin123</code></p>
+          <p>Admin Client: <code className="text-slate-400">adminclient</code> / <code className="text-slate-400">client123</code></p>
           <p>User: <code className="text-slate-400">user</code> / <code className="text-slate-400">user123</code></p>
         </div>
       </div>
