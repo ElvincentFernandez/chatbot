@@ -175,6 +175,11 @@ export function Sidebar({ currentSessionId, onSelectSession, onNewChat }: Sideba
                   }`}
                 >
                   <div className="truncate flex-1">
+                    {session.client_name && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/10 font-bold inline-block mb-1">
+                        {session.client_name}
+                      </span>
+                    )}
                     <p className={`text-sm truncate transition-colors ${
                       currentSessionId === session.id ? 'text-primary font-medium' : 'text-sidebar-foreground group-hover:text-primary'
                     }`}>
@@ -206,8 +211,8 @@ export function Sidebar({ currentSessionId, onSelectSession, onNewChat }: Sideba
           )}
         </div>
 
-        {/* Navigation for Admin/Superadmin */}
-        {(role === 'admin' || role === 'superadmin') && (
+        {/* Navigation for Admin/Superadmin/Admin Client */}
+        {(role === 'admin' || role === 'superadmin' || role === 'admin_client') && (
           <div className="px-4 py-2 border-t border-sidebar-border">
             <Link 
               href="/admin" 

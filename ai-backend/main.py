@@ -14,13 +14,14 @@ import traceback
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Header, Depends, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, Header, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-import database  # modul SQLite: users, chat_sessions, messages (dari teman)
-import rag       # sistem RAG (ingestion, retrieval, cache, generation)
+import database
+import rag
+from access import validate_upload_access
 
 
 # =========================================================
@@ -39,15 +40,13 @@ app = FastAPI(lifespan=lifespan)
 # sekarang punya login & role.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-# =========================================================
-# AUTENTIKASI
-# =========================================================
+# Helper Dependency untuk Autentikasi
 async def get_current_user(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Header otentikasi tidak valid atau kosong.")
@@ -73,8 +72,8 @@ class LoginRequest(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     session_id: str
-    document: Optional[str] = None  # nama file dokumen aktif; None = cari di semua dokumen
-    general_mode: bool = False      # False (default) = ketat sesuai dokumen; True = boleh jawab umum
+    document: Optional[str] = None
+    general_mode: bool = False
 
 class SavePartialRequest(BaseModel):
     session_id: str
@@ -82,41 +81,76 @@ class SavePartialRequest(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     title: str
+    client_id: int
 
 class UserCreateRequest(BaseModel):
     username: str
     password: str
     role: str
+    client_id: int = None
 
+class ClientCreateRequest(BaseModel):
+    name: str
+    type: str
 
-# =========================================================
-# 1. AUTH
-# =========================================================
+# 1. AUTH ENDPOINTS
 @app.post("/api/auth/login")
 async def login_endpoint(request: LoginRequest):
     user = database.get_user_by_credentials(request.username, request.password)
     if not user:
         raise HTTPException(status_code=401, detail="Username atau password salah.")
-    return {"username": user["username"], "role": user["role"], "token": user["token"]}
+    return {
+        "username": user["username"],
+        "role": user["role"],
+        "token": user["token"],
+        "client_id": user["client_id"],
+        "client_name": user["client_name"]
+    }
 
+# 2. CLIENT MANAGEMENT ENDPOINTS
+@app.get("/api/clients")
+async def list_clients(user=Depends(get_current_user)):
+    return database.get_all_clients()
 
-# =========================================================
-# 2. CHAT SESSIONS (riwayat chat permanen)
-# =========================================================
+@app.post("/api/clients")
+async def create_client(request: ClientCreateRequest, user=Depends(get_current_user)):
+    if user["role"] not in ["superadmin", "admin"]:
+        raise HTTPException(status_code=403, detail="Hanya Superadmin atau Admin yang dapat menambahkan client.")
+    try:
+        return database.add_client(request.name, request.type)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/clients/{client_id}")
+async def remove_client(client_id: int, user=Depends(get_current_user)):
+    if user["role"] not in ["superadmin", "admin"]:
+        raise HTTPException(status_code=403, detail="Hanya Superadmin atau Admin yang dapat menghapus client.")
+    database.delete_client(client_id)
+    # Hapus juga koleksi ChromaDB jika diinginkan
+    try:
+        vector_db = Chroma(persist_directory=persist_directory, embedding_function=embeddings, collection_name=f"client_{client_id}")
+        vector_db.delete_collection()
+    except Exception as e:
+        print(f"Gagal menghapus koleksi ChromaDB client_{client_id}: {e}")
+    return {"message": "Client berhasil dihapus."}
+
+# 3. CHAT SESSION ENDPOINTS
 @app.get("/api/chat/sessions")
 async def get_sessions(user=Depends(get_current_user)):
     return database.get_chat_sessions(user["id"])
 
 @app.post("/api/chat/sessions")
 async def create_session(request: CreateSessionRequest, user=Depends(get_current_user)):
-    return database.create_chat_session(user["id"], request.title)
+    return database.create_chat_session(user["id"], request.client_id, request.title)
 
 @app.get("/api/chat/sessions/{session_id}")
 async def get_session_messages(session_id: str, user=Depends(get_current_user)):
     sessions = database.get_chat_sessions(user["id"])
     session_ids = [s["id"] for s in sessions]
+    
     if session_id not in session_ids and user["role"] not in ["admin", "superadmin"]:
         raise HTTPException(status_code=403, detail="Akses ditolak ke sesi chat ini.")
+        
     return database.get_chat_messages(session_id)
 
 @app.delete("/api/chat/sessions/{session_id}")
@@ -126,16 +160,26 @@ async def delete_session(session_id: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Gagal menghapus sesi. Pastikan Anda adalah pemiliknya.")
     return {"message": "Sesi chat berhasil dihapus."}
 
-
-# =========================================================
 # 3. CHAT (Hybrid RAG + Semantic Cache per dokumen + riwayat SQLite + stop)
-# =========================================================
 @app.post("/api/chat")
-async def chat_endpoint(request: ChatRequest, http_request: Request, user=Depends(get_current_user)):
+async def chat_endpoint(request: ChatRequest, user=Depends(get_current_user)):
     start_time = time.time()
     user_input = request.message.strip()
     if not user_input:
         raise HTTPException(status_code=400, detail="Pesan tidak boleh kosong.")
+
+    sessions = database.get_chat_sessions(user["id"])
+    session_ids = [s["id"] for s in sessions]
+    if request.session_id not in session_ids and user["role"] not in ["admin", "superadmin"]:
+        raise HTTPException(status_code=403, detail="Akses ditolak ke sesi chat ini.")
+
+    conn = database.get_db_connection()
+    session = conn.execute("SELECT client_id FROM chat_sessions WHERE id = ?", (request.session_id,)).fetchone()
+    conn.close()
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesi chat tidak ditemukan.")
+
+    client_id = session["client_id"]
     if request.document and request.document not in rag.state.documents:
         raise HTTPException(status_code=404, detail=f"Dokumen '{request.document}' tidak ditemukan.")
 
@@ -167,7 +211,6 @@ async def chat_endpoint(request: ChatRequest, http_request: Request, user=Depend
     system_prompt = rag.select_system_prompt(is_rag_mode, request.general_mode)
     prompt = rag.build_prompt(system_prompt, user_input, context)
 
-    # 3. GENERATE STREAMING -- thread-safe, bisa di-stop lebih awal secara nyata
     stop_event = threading.Event()
 
     async def generate_stream():
@@ -176,41 +219,30 @@ async def chat_endpoint(request: ChatRequest, http_request: Request, user=Depend
         first_token_time = None
         token_count = 0
         try:
+            # Send a tiny initial chunk to flush headers and trigger browser streaming
+            yield "\n"
             async for chunk in rag.stream_llm(prompt, stop_event):
                 if first_token_time is None:
                     first_token_time = time.time()
                     print(f"[TIMING] Waktu sampai token pertama: {first_token_time - generation_start:.3f} detik")
                 full_response += chunk
                 token_count += 1
-                yield chunk
-
-                # Deteksi kalau user menekan Stop (fetch di-abort di frontend)
-                # -> hentikan thread generate juga, bukan cuma berhenti nge-relay.
-                if await http_request.is_disconnected():
-                    stop_event.set()
-                    break
-        except Exception as e:
-            print(f"Error saat generate: {e}")
-            traceback.print_exc()
-            yield "\n\nAduh, aku lagi pusing nih."
+                if chunk:
+                    yield chunk
+        except asyncio.CancelledError:
+            print("Streaming dihentikan oleh user / koneksi terputus.")
+            raise
         finally:
-            elapsed = time.time() - generation_start
-            if elapsed > 0:
-                print(f"[TIMING] Total generate: {elapsed:.3f} detik untuk ~{token_count} chunk "
-                      f"(~{token_count / elapsed:.2f} chunk/detik)")
             if full_response.strip():
                 try:
                     database.save_message(request.session_id, "assistant", full_response)
                 except Exception as db_err:
-                    print(f"Gagal menyimpan pesan: {db_err}")
+                    print(f"Gagal menyimpan pesan parsial: {db_err}")
 
-                # Cache cuma diisi kalau generate selesai NORMAL (bukan di-stop),
-                # supaya cache tidak pernah menyimpan jawaban yang terpotong.
                 if not stop_event.is_set():
                     await rag.store_cache(cache_key, user_input_lower, query_embedding, full_response)
 
     return StreamingResponse(generate_stream(), media_type="text/plain")
-
 
 @app.post("/api/chat/save_partial")
 async def save_partial_endpoint(request: SavePartialRequest, user=Depends(get_current_user)):
@@ -222,13 +254,22 @@ async def save_partial_endpoint(request: SavePartialRequest, user=Depends(get_cu
             raise HTTPException(status_code=500, detail=f"Gagal menyimpan pesan: {str(e)}")
     return {"status": "empty"}
 
+# 5. DOCUMENT MANAGEMENT ENDPOINTS (RAG Upload per Client)
+@app.get("/api/documents/{client_id}")
+async def list_documents(client_id: int, user=Depends(get_current_user)):
+    # Cek otorisasi role
+    if user["role"] == "admin_client" and user["client_id"] != client_id:
+        raise HTTPException(status_code=403, detail="Akses ditolak. Anda hanya dapat melihat dokumen milik client Anda.")
+    return database.get_documents_by_client(client_id)
 
-# =========================================================
-# 4. DOKUMEN RAG (upload: admin/superadmin, lihat: semua yang login)
-# =========================================================
 @app.post("/api/upload")
-async def upload_endpoint(file: UploadFile = File(...), user=Depends(get_current_user)):
-    require_role(user, ["admin", "superadmin"], "Upload dokumen")
+async def upload_endpoint(
+    file: UploadFile = File(...),
+    client_id: Optional[int] = Query(None),
+    user=Depends(get_current_user)
+):
+    require_role(user, ["admin", "superadmin", "admin_client"], "Upload dokumen")
+    client_id = validate_upload_access(user, client_id)
 
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Hanya file PDF yang didukung.")
@@ -240,8 +281,12 @@ async def upload_endpoint(file: UploadFile = File(...), user=Depends(get_current
             f.write(await file.read())
 
         n_chunks = rag.ingest_pdf(file_path, file.filename)
+        doc_metadata = database.add_document(client_id, file.filename, "PDF")
 
-        return {"message": f"Sip! sudah dibaca '{file.filename}' ({n_chunks} halaman/potongan)."}
+        return {
+            "message": f"Sip! sudah dibaca '{file.filename}' ({n_chunks} halaman/potongan).",
+            "doc": doc_metadata,
+        }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except HTTPException:
@@ -254,45 +299,74 @@ async def upload_endpoint(file: UploadFile = File(...), user=Depends(get_current
         if os.path.exists(file_path):
             os.remove(file_path)
 
+@app.delete("/api/documents/{doc_id}")
+async def remove_document(doc_id: int, user=Depends(get_current_user)):
+    # Ambil info dokumen dulu untuk verifikasi client_id
+    conn = database.get_db_connection()
+    doc = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+    conn.close()
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan.")
+        
+    client_id = doc["client_id"]
+    filename = doc["filename"]
+    
+    if user["role"] not in ["superadmin", "admin", "admin_client"]:
+        raise HTTPException(status_code=403, detail="Akses ditolak.")
+    if user["role"] == "admin_client" and user["client_id"] != client_id:
+        raise HTTPException(status_code=403, detail="Anda hanya dapat menghapus dokumen milik client Anda.")
+        
+    # Hapus dari SQLite
+    database.delete_document(doc_id)
+    
+    # Hapus dari ChromaDB
+    try:
+        collection_name = f"client_{client_id}"
+        vector_db = Chroma(
+            persist_directory=persist_directory,
+            embedding_function=embeddings,
+            collection_name=collection_name
+        )
+        # Hapus berdasarkan metadata source file
+        vector_db.delete(where={"source": filename})
+    except Exception as e:
+        print(f"Gagal menghapus vector dokumen {filename} dari ChromaDB: {e}")
+        
+    # Hapus cache client ini
+    global PROMPT_CACHE
+    PROMPT_CACHE = [c for c in PROMPT_CACHE if c.get("client_id") != client_id]
+    
+    return {"message": f"Dokumen '{filename}' berhasil dihapus."}
 
+# 5. DOCUMENT & USER MANAGEMENT ENDPOINTS
 @app.get("/api/documents")
 async def list_documents(user=Depends(get_current_user)):
     return {"documents": rag.state.documents}
 
 
-@app.delete("/api/documents/{filename}")
-async def delete_document_endpoint(filename: str, user=Depends(get_current_user)):
-    require_role(user, ["admin", "superadmin"], "Hapus dokumen")
-
-    if filename not in rag.state.documents:
-        raise HTTPException(status_code=404, detail=f"Dokumen '{filename}' tidak ditemukan.")
-
-    rag.delete_document(filename)
-    return {"message": f"Dokumen '{filename}' sudah dihapus."}
-
-
-# =========================================================
-# 5. MANAJEMEN USER (superadmin only)
-# =========================================================
+# 6. USER MANAGEMENT ENDPOINTS (Hanya Superadmin / Admin)
 @app.get("/api/admin/users")
 async def list_users(user=Depends(get_current_user)):
-    require_role(user, ["superadmin"], "Melihat daftar user")
+    if user["role"] not in ["superadmin", "admin"]:
+        raise HTTPException(status_code=403, detail="Hanya Superadmin atau Admin yang memiliki akses ke daftar user.")
     return database.get_all_users()
 
 @app.post("/api/admin/users")
 async def create_user(request: UserCreateRequest, user=Depends(get_current_user)):
-    require_role(user, ["superadmin"], "Menambah user")
+    if user["role"] not in ["superadmin", "admin"]:
+        raise HTTPException(status_code=403, detail="Akses ditolak.")
     try:
-        return database.add_user(request.username, request.password, request.role)
+        return database.add_user(request.username, request.password, request.role, request.client_id)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.delete("/api/admin/users/{user_id}")
 async def remove_user(user_id: int, user=Depends(get_current_user)):
-    require_role(user, ["superadmin"], "Menghapus user")
+    if user["role"] not in ["superadmin", "admin"]:
+        raise HTTPException(status_code=403, detail="Akses ditolak.")
     database.delete_user(user_id)
     return {"message": "User berhasil dihapus."}
-
 
 @app.get("/api/health")
 async def health():
