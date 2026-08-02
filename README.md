@@ -82,7 +82,7 @@ Pastikan sistem sudah terinstal perangkat lunak berikut:
 
 ### 1. Unduh Model GGUF
 Proyek ini menggunakan model **Qwen3.5-2B** format GGUF agar bisa berjalan secara lokal via llama.cpp.
-1. Buka tautan repositori: [unsloth/Qwen3.5-2B-GGUF](https://huggingface.co/RamIsFine/qwen-alpaca-bisa)
+1. Buka tautan repositori: [unsloth/Qwen3.5-2B-GGUF](https://huggingface.co/RamIsFine/qwen-cs-style/tree/main)
 2. Unduh file `Qwen3.5-2B-UD-Q4_K_XL.gguf` (kuantisasi Unsloth Dynamic — keseimbangan terbaik antara
    ukuran dan kualitas untuk perangkat CPU/GPU terbatas), atau pakai hasil fine-tuning sendiri (format
    `q4_k_m`).
