@@ -152,8 +152,16 @@ export default function Home() {
             }
           }
 
-          isNearBottomRef.current = true;
-          setMessages(mappedMessages);
+          // If we just created this session locally, preserve the local
+          // placeholder assistant message so streaming can start and the
+          // typing indicator remains visible. Subsequent fetches will behave
+          // normally.
+          if (justCreatedSessionRef.current === currentSessionId) {
+            justCreatedSessionRef.current = null;
+          } else {
+            isNearBottomRef.current = true;
+            setMessages(mappedMessages);
+          }
         }
       } catch (err) {
         console.error("Gagal memuat pesan:", err);
@@ -303,7 +311,7 @@ export default function Home() {
     const initialAssistantMessage: Message = {
       id: assistantMessageId,
       role: "assistant",
-      content: "", 
+      content: "",
       timestamp: new Date(),
     };
 
@@ -331,12 +339,23 @@ export default function Home() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
       let fullText = "";
+      let receivedFirstNonWhitespace = false;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
+
+        // Ignore purely-whitespace flush chunks until we receive the first
+        // meaningful token. This keeps the assistant placeholder empty so the
+        // typing indicator is shown, and prevents visual noise from the
+        // backend's initial flush.
+        if (!receivedFirstNonWhitespace && chunk.trim().length === 0) {
+          continue;
+        }
+
+        receivedFirstNonWhitespace = true;
         fullText += chunk;
 
         setMessages((prev) => {
@@ -598,22 +617,7 @@ export default function Home() {
               onSubmit={handleSendMessage}
               className="flex gap-3 items-center"
             >
-              {/* Only show PDF upload to admin / admin_client */}
-              {selectedClientId && (userRole === "admin" || userRole === "superadmin" || (userRole === "admin_client" && userClientId === selectedClientId)) ? (
-                <label className="cursor-pointer p-2 hover:bg-secondary rounded-full transition-colors flex-shrink-0" title="Upload PDF to RAG Database">
-                  <Database size={24} className="text-purple-400 hover:text-purple-300" />
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept=".pdf"
-                    onChange={handleFileUpload}
-                  />
-                </label>
-              ) : (
-                <div className="p-2 cursor-not-allowed opacity-40 flex-shrink-0" title="Anda tidak diizinkan mengupload PDF ke Client ini">
-                  <Database size={24} className="text-muted-foreground" />
-                </div>
-              )}
+              {/* Upload from chat input removed - use Admin Dashboard instead */}
 
               <input
                 type="text"

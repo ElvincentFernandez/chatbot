@@ -17,8 +17,6 @@ import {
   School,
   Landmark,
   FileText,
-  Image as ImageIcon,
-  Video as VideoIcon,
   Plus,
   Calendar
 } from "lucide-react";
@@ -70,7 +68,7 @@ export default function AdminDashboard() {
   const [newUserClientId, setNewUserClientId] = useState<number | string>("");
 
   // Document Upload state
-  const [selectedDocType, setSelectedDocType] = useState("PDF");
+  const [selectedDocType] = useState("PDF");
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -367,11 +365,7 @@ export default function AdminDashboard() {
   };
 
   const getDocIcon = (type: string) => {
-    switch (type) {
-      case "PDF": return <FileText className="w-5 h-5 text-red-400" />;
-      case "GAMBAR": return <ImageIcon className="w-5 h-5 text-green-400" />;
-      default: return <VideoIcon className="w-5 h-5 text-blue-400" />;
-    }
+    return <FileText className="w-5 h-5 text-red-400" />;
   };
 
   return (
@@ -458,7 +452,7 @@ export default function AdminDashboard() {
                 Upload Data RAG
               </h2>
               <p className="text-xs text-slate-400 mb-4">
-                Unggah dokumen basis pengetahuan ke ChromaDB. Data akan otomatis di-vektorisasi per client.
+                Unggah file PDF saja untuk basis pengetahuan client. Data akan otomatis di-vektorisasi per client.
               </p>
 
               {/* Client Selector (Only if Global Admin) */}
@@ -482,33 +476,17 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              <div className="mb-4">
-                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Jenis Dokumen</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {["PDF", "GAMBAR", "VIDEO"].map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setSelectedDocType(t)}
-                      className={`py-1.5 rounded-lg border text-xs font-semibold ${
-                        selectedDocType === t 
-                          ? "bg-purple-500/10 border-purple-500 text-purple-300" 
-                          : "bg-slate-950 border-slate-850 text-slate-400"
-                      }`}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
+              <div className="mb-4 rounded-lg border border-purple-500/20 bg-purple-500/10 px-3 py-2 text-xs text-purple-200">
+                Format yang diterima: <span className="font-semibold">PDF</span>
               </div>
 
               <label className={`flex flex-col items-center justify-center border-2 border-dashed border-slate-700 hover:border-purple-500 rounded-xl p-6 cursor-pointer transition-colors bg-slate-950/40 group ${!selectedClientId ? "pointer-events-none opacity-40" : ""}`}>
                 <UploadCloud className="w-10 h-10 text-slate-500 group-hover:text-purple-400 transition-colors mb-2" />
-                <span className="text-xs font-semibold text-slate-300">Pilih File {selectedDocType}</span>
-                <input 
-                  type="file" 
-                  accept={selectedDocType === "PDF" ? ".pdf" : selectedDocType === "GAMBAR" ? ".png,.jpg,.jpeg" : ".mp4,.avi,.mkv"} 
-                  className="hidden" 
+                <span className="text-xs font-semibold text-slate-300">Pilih File PDF</span>
+                <input
+                  type="file"
+                  accept=".pdf"
+                  className="hidden"
                   onChange={handleFileUpload}
                   disabled={isUploading || !selectedClientId}
                 />
