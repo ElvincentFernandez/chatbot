@@ -14,5 +14,7 @@ langchain-text-splitters
 llama-cpp-python
 sentence-transformers
 chromadb
+pymupdf 
+rank_bm25
 
 pymupdf

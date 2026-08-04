@@ -1,36 +1,43 @@
+"""
+main.py -- FastAPI app: routing, autentikasi, dan manajemen sesi chat.
+
+Semua logic RAG (ingestion, retrieval, semantic cache, generation) ada di
+rag.py -- file ini cuma orchestrator: terima request HTTP, cek auth, simpan
+riwayat chat ke database, panggil fungsi-fungsi di rag.py, dan kembalikan
+response (termasuk streaming).
+"""
 import os
 import time
-import math
 import asyncio
+import threading
+import traceback
+from contextlib import asynccontextmanager
+from typing import Optional
+
 from fastapi import FastAPI, UploadFile, File, HTTPException, Header, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from langchain_community.llms import Ollama
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import OllamaEmbeddings
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# Import database module
 import database
+import rag
+from access import validate_upload_access
 
-# Inisialisasi FastAPI
-app = FastAPI()
 
-# Inisialisasi In-Memory Prompt Cache
-PROMPT_CACHE = []
-CACHE_THRESHOLD = 0.95 # 95% Mirip baru dianggap sama
+# =========================================================
+# LIFESPAN -- inisialisasi resource RAG saat server startup
+# =========================================================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await rag.initialize()
+    yield
 
-# Fungsi untuk menghitung kemiripan makna tanpa library tambahan (murni Python)
-def calculate_cosine_similarity(vec1, vec2):
-    dot_product = sum(a * b for a, b in zip(vec1, vec2))
-    norm1 = math.sqrt(sum(a * a for a in vec1))
-    norm2 = math.sqrt(sum(b * b for b in vec2))
-    if norm1 == 0 or norm2 == 0: return 0.0
-    return dot_product / (norm1 * norm2)
 
-# Izinkan Frontend Next.js mengakses API ini
+app = FastAPI(lifespan=lifespan)
+
+# Bearer token (bukan cookie) -> allow_credentials tidak diperlukan.
+# Origin dikembalikan ke spesifik (bukan "*") -- lebih aman untuk sistem yang
+# sekarang punya login & role.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -38,10 +45,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Inisialisasi model embedding
-embeddings = OllamaEmbeddings(model="bge-m3")
-persist_directory = "./chroma_db"
 
 # Helper Dependency untuk Autentikasi
 async def get_current_user(authorization: str = Header(None)):
@@ -53,7 +56,15 @@ async def get_current_user(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail="Token tidak valid atau tidak dikenali.")
     return user
 
-# Models
+
+def require_role(user: dict, allowed_roles: list, action: str):
+    if user["role"] not in allowed_roles:
+        raise HTTPException(status_code=403, detail=f"Akses ditolak. {action} hanya untuk: {', '.join(allowed_roles)}.")
+
+
+# =========================================================
+# SCHEMAS
+# =========================================================
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -61,6 +72,8 @@ class LoginRequest(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     session_id: str
+    document: Optional[str] = None
+    general_mode: bool = False
 
 class SavePartialRequest(BaseModel):
     session_id: str
@@ -147,124 +160,89 @@ async def delete_session(session_id: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Gagal menghapus sesi. Pastikan Anda adalah pemiliknya.")
     return {"message": "Sesi chat berhasil dihapus."}
 
-# 4. CHAT ENDPOINT
+# 3. CHAT (Hybrid RAG + Semantic Cache per dokumen + riwayat SQLite + stop)
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest, user=Depends(get_current_user)):
     start_time = time.time()
-    user_input = request.message.strip().lower()
-    
-    # Dapatkan info session untuk tahu client_id
+    user_input = request.message.strip()
+    if not user_input:
+        raise HTTPException(status_code=400, detail="Pesan tidak boleh kosong.")
+
+    sessions = database.get_chat_sessions(user["id"])
+    session_ids = [s["id"] for s in sessions]
+    if request.session_id not in session_ids and user["role"] not in ["admin", "superadmin"]:
+        raise HTTPException(status_code=403, detail="Akses ditolak ke sesi chat ini.")
+
     conn = database.get_db_connection()
     session = conn.execute("SELECT client_id FROM chat_sessions WHERE id = ?", (request.session_id,)).fetchone()
     conn.close()
-    
     if not session:
         raise HTTPException(status_code=404, detail="Sesi chat tidak ditemukan.")
-    
+
     client_id = session["client_id"]
-    
-    # Simpan pertanyaan user ke SQLite DB
+    if request.document and request.document not in rag.state.documents:
+        raise HTTPException(status_code=404, detail=f"Dokumen '{request.document}' tidak ditemukan.")
+
     database.save_message(request.session_id, "user", request.message)
-    
-    # Ubah teks input menjadi vektor
-    query_embedding = embeddings.embed_query(user_input)
-    
-    # FASE SEMANTIC CACHING
-    for cached_item in PROMPT_CACHE:
-        sim_score = calculate_cosine_similarity(query_embedding, cached_item["embedding"])
-        # Pastikan cache yang diambil berasal dari client_id yang sama
-        if sim_score >= CACHE_THRESHOLD and cached_item.get("client_id") == client_id:
-            cached_response = cached_item['response']
-            database.save_message(request.session_id, "assistant", cached_response)
-            
-            async def stream_cache():
-                words = cached_response.split(" ")
-                for word in words:
-                    yield word + " "
-                    await asyncio.sleep(0.01) 
-                yield f"\n\n*(⚡ Diambil dari Semantic Cache - {sim_score*100:.1f}% dalam {time.time() - start_time:.4f} detik)*"
-            
-            return StreamingResponse(stream_cache(), media_type="text/plain")
 
-    try:
-        llm = Ollama(
-            model="qwen_slm",
-            temperature=0.2,
-            num_predict=2048,
-            repeat_penalty=1.15
-        )
-        context = ""
-        is_rag_mode = False
+    cache_key = rag.make_cache_key(request.document, request.general_mode)
+    user_input_lower = user_input.lower()
+    query_embedding = rag.state.embeddings.embed_query(user_input_lower)
 
-        # Inisialisasi ChromaDB spesifik untuk Client
-        collection_name = f"client_{client_id}"
-        if os.path.exists(persist_directory):
-            try:
-                vector_db = Chroma(
-                    persist_directory=persist_directory, 
-                    embedding_function=embeddings,
-                    collection_name=collection_name
-                )
-                
-                # Cari dokumen yang relevan dari koleksi client
-                mmr_docs = vector_db.max_marginal_relevance_search(
-                    request.message, k=3, fetch_k=10
-                )
-                if mmr_docs:
-                    context = "\n\n".join([doc.page_content for doc in mmr_docs])
-                    is_rag_mode = True
-            except Exception as e:
-                print(f"Gagal membaca ChromaDB koleksi {collection_name}: {e}")
+    # 1. CEK SEMANTIC CACHE (di-scope per dokumen aktif)
+    best_match, best_score = await rag.check_cache(cache_key, user_input_lower, query_embedding)
 
-        # STRUKTUR PROMPT (Dibuat fleksibel: memprioritaskan dokumen, tetapi bebas menjawab secara umum jika di luar topik)
-        if is_rag_mode:
-            prompt = f"""Kamu adalah qwen, asisten AI yang cerdas, santai, dan ramah. Gunakan kata "aku" dan "kamu" dalam menjawab.
+    if best_match:
+        async def stream_cache():
+            words = best_match["response"].split(" ")
+            for word in words:
+                yield word + " "
+                await asyncio.sleep(0.01)
+            yield f"\n\n*(⚡ Diambil dari Semantic Cache - {best_score*100:.1f}% mirip, {time.time() - start_time:.4f} detik)*"
+            database.save_message(request.session_id, "assistant", best_match["response"])
 
-Berikut adalah informasi referensi dari dokumen kami (gunakan ini jika relevan dengan pertanyaan):
-{context}
+        return StreamingResponse(stream_cache(), media_type="text/plain")
 
-Pertanyaan: {request.message}
+    # 2. HYBRID RAG RETRIEVAL (scoped ke dokumen aktif kalau ada)
+    retrieval_start = time.time()
+    context, is_rag_mode = rag.get_context(user_input_lower, query_embedding, request.document)
+    print(f"[TIMING] Retrieval: {time.time() - retrieval_start:.3f} detik")
 
-Aturan:
-1. Jika pertanyaan bisa dijawab menggunakan informasi referensi di atas, prioritaskan informasi tersebut.
-2. Jika pertanyaan tidak ada hubungannya dengan informasi referensi di atas (misalnya sapaan umum, pertanyaan umum sejarah, sains, tokoh, dll), jawablah secara bebas dan santai berdasarkan pengetahuan umum yang kamu miliki."""
-        else:
-            prompt = f"Pertanyaan: {request.message}\nInstruksi: Jawablah dengan cerdas, santai, dan gunakan kata aku/kamu."
-            
-        async def generate_stream():
-            full_response = ""
-            try:
-                async for chunk in llm.astream(prompt):
-                    full_response += chunk
-                    yield chunk
-            except asyncio.CancelledError:
-                print("Streaming dihentikan oleh user / koneksi terputus.")
-                raise
-            finally:
-                if full_response.strip():
-                    try:
-                        database.save_message(request.session_id, "assistant", full_response)
-                    except Exception as db_err:
-                        print(f"Gagal menyimpan pesan parsial: {db_err}")
-                    
-                    if not asyncio.current_task().cancelled():
-                        PROMPT_CACHE.append({
-                            "query": user_input,
-                            "embedding": query_embedding,
-                            "response": full_response,
-                            "client_id": client_id
-                        })
-                        if len(PROMPT_CACHE) > 100: PROMPT_CACHE.pop(0)
+    system_prompt = rag.select_system_prompt(is_rag_mode, request.general_mode)
+    prompt = rag.build_prompt(system_prompt, user_input, context)
 
-        return StreamingResponse(generate_stream(), media_type="text/plain")
-        
-    except Exception as e:
-        error_msg = f"Aduh, aku lagi pusing nih. (Error: {str(e)})"
+    stop_event = threading.Event()
+
+    async def generate_stream():
+        full_response = ""
+        generation_start = time.time()
+        first_token_time = None
+        token_count = 0
         try:
-            database.save_message(request.session_id, "assistant", error_msg)
-        except:
-            pass
-        raise HTTPException(status_code=500, detail=error_msg)
+            # Send a tiny initial chunk to flush headers and trigger browser streaming
+            yield "\n"
+            async for chunk in rag.stream_llm(prompt, stop_event):
+                if first_token_time is None:
+                    first_token_time = time.time()
+                    print(f"[TIMING] Waktu sampai token pertama: {first_token_time - generation_start:.3f} detik")
+                full_response += chunk
+                token_count += 1
+                if chunk:
+                    yield chunk
+        except asyncio.CancelledError:
+            print("Streaming dihentikan oleh user / koneksi terputus.")
+            raise
+        finally:
+            if full_response.strip():
+                try:
+                    database.save_message(request.session_id, "assistant", full_response)
+                except Exception as db_err:
+                    print(f"Gagal menyimpan pesan parsial: {db_err}")
+
+                if not stop_event.is_set():
+                    await rag.store_cache(cache_key, user_input_lower, query_embedding, full_response)
+
+    return StreamingResponse(generate_stream(), media_type="text/plain")
 
 @app.post("/api/chat/save_partial")
 async def save_partial_endpoint(request: SavePartialRequest, user=Depends(get_current_user)):
@@ -286,68 +264,40 @@ async def list_documents(client_id: int, user=Depends(get_current_user)):
 
 @app.post("/api/upload")
 async def upload_endpoint(
-    file: UploadFile = File(...), 
-    client_id: int = Query(...),
+    file: UploadFile = File(...),
+    client_id: Optional[int] = Query(None),
     user=Depends(get_current_user)
 ):
-    # Verifikasi hak akses upload
-    if user["role"] not in ["superadmin", "admin", "admin_client"]:
-        raise HTTPException(status_code=403, detail="Hanya Admin yang dapat mengunggah dokumen.")
-    if user["role"] == "admin_client" and user["client_id"] != client_id:
-        raise HTTPException(status_code=403, detail="Anda hanya diizinkan mengunggah dokumen ke Client Anda sendiri.")
-        
+    require_role(user, ["admin", "superadmin", "admin_client"], "Upload dokumen")
+    client_id = validate_upload_access(user, client_id)
+
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Hanya file PDF yang didukung.")
+
+    file_path = f"./temp_uploads/{file.filename}"
     try:
         os.makedirs("temp_uploads", exist_ok=True)
-        file_path = f"./temp_uploads/{file.filename}"
-        
         with open(file_path, "wb") as f:
             f.write(await file.read())
-        
-        # Tentukan tipe dokumen
-        ext = os.path.splitext(file.filename)[1].lower()
-        doc_type = "PDF"
-        if ext in [".png", ".jpg", ".jpeg"]:
-            doc_type = "GAMBAR"
-        elif ext in [".mp4", ".avi", ".mkv"]:
-            doc_type = "VIDEO"
 
-        # Proses PDF ke VectorDB jika tipe adalah PDF
-        if doc_type == "PDF":
-            loader = PyPDFLoader(file_path)
-            data = loader.load()
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1500,
-                chunk_overlap=400,
-                separators=["\n\n", "\n", ". ", " "]
-            )
-            chunks = text_splitter.split_documents(data)
-            
-            # Masukkan ke ChromaDB dengan Collection khusus Client
-            collection_name = f"client_{client_id}"
-            Chroma.from_documents(
-                documents=chunks, 
-                embedding=embeddings, 
-                persist_directory=persist_directory,
-                collection_name=collection_name
-            )
-        else:
-            # Untuk Gambar / Video (Non-PDF), kita hanya catat metadatanya di SQLite 
-            # agar muncul di daftar "Informasi Data" Dashboard
-            pass
-            
-        os.remove(file_path)
+        n_chunks = rag.ingest_pdf(file_path, file.filename)
+        doc_metadata = database.add_document(client_id, file.filename, "PDF")
 
-        # Simpan metadata ke SQLite
-        doc_metadata = database.add_document(client_id, file.filename, doc_type)
-
-        global PROMPT_CACHE
-        PROMPT_CACHE = [c for c in PROMPT_CACHE if c.get("client_id") != client_id]
-
-        return {"message": f"Sip! sudah dibaca '{file.filename}' sebagai {doc_type}.", "doc": doc_metadata}
+        return {
+            "message": f"Sip! sudah dibaca '{file.filename}' ({n_chunks} halaman/potongan).",
+            "doc": doc_metadata,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
+        print("=== ERROR SAAT UPLOAD PDF ===")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Gagal proses PDF: {str(e)}")
+    finally:
         if os.path.exists(file_path):
             os.remove(file_path)
-        raise HTTPException(status_code=500, detail=f"Gagal proses file: {str(e)}")
 
 @app.delete("/api/documents/{doc_id}")
 async def remove_document(doc_id: int, user=Depends(get_current_user)):
@@ -389,6 +339,12 @@ async def remove_document(doc_id: int, user=Depends(get_current_user)):
     
     return {"message": f"Dokumen '{filename}' berhasil dihapus."}
 
+# 5. DOCUMENT & USER MANAGEMENT ENDPOINTS
+@app.get("/api/documents")
+async def list_documents(user=Depends(get_current_user)):
+    return {"documents": rag.state.documents}
+
+
 # 6. USER MANAGEMENT ENDPOINTS (Hanya Superadmin / Admin)
 @app.get("/api/admin/users")
 async def list_users(user=Depends(get_current_user)):
@@ -411,6 +367,18 @@ async def remove_user(user_id: int, user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Akses ditolak.")
     database.delete_user(user_id)
     return {"message": "User berhasil dihapus."}
+
+@app.get("/api/health")
+async def health():
+    total_cache_items = sum(len(v) for v in rag.state.prompt_cache.values())
+    return {
+        "status": "ok",
+        "rag_ready": os.path.exists(rag.CHROMA_DIR) and bool(os.listdir(rag.CHROMA_DIR)),
+        "documents": rag.state.documents,
+        "bm25_indexed_chunks": len(rag.state.bm25_index.doc_ids) if rag.state.bm25_index else 0,
+        "cache_size": total_cache_items,
+    }
+
 
 if __name__ == "__main__":
     import uvicorn
