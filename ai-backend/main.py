@@ -125,6 +125,19 @@ class ClientCreateRequest(BaseModel):
     name: str
     type: str
 
+class ClientInstansiCreateRequest(BaseModel):
+    username: str
+    instansi_name: str
+    email: str
+    password: str
+    client_type: str
+
+class ClientInstansiUpdateRequest(BaseModel):
+    username: str
+    instansi_name: str
+    client_type: str
+    password: Optional[str] = None
+
 
 # =========================================================
 # 1. AUTH
@@ -140,7 +153,22 @@ async def login_endpoint(request: LoginRequest):
         "token": user["token"],
         "client_id": user["client_id"],
         "client_name": user["client_name"],
+        "password_changed": user["password_changed"],
     }
+
+
+class ChangePasswordRequest(BaseModel):
+    new_password: str
+
+
+@app.post("/api/auth/change-password")
+async def change_password_endpoint(request: ChangePasswordRequest, user=Depends(get_current_user)):
+    try:
+        database.update_user_password(user["id"], request.new_password)
+        return {"status": "success", "message": "Password berhasil diperbarui."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 
 # =========================================================
@@ -421,6 +449,57 @@ async def remove_user(user_id: int, user=Depends(get_current_user)):
     require_role(user, ["superadmin", "admin"], "Menghapus user")
     database.delete_user(user_id)
     return {"message": "User berhasil dihapus."}
+
+
+@app.post("/api/admin/client-instansi")
+async def create_client_instansi(request: ClientInstansiCreateRequest, user=Depends(get_current_user)):
+    require_role(user, ["superadmin", "admin"], "Membuat client instansi")
+    try:
+        # 1. Buat client baru
+        client = database.add_client(request.instansi_name, request.client_type)
+        # 2. Buat user admin_client baru yang terikat ke client tersebut
+        new_user = database.add_user(
+            username=request.username,
+            password=request.password,
+            role="admin_client",
+            client_id=client["id"],
+            email=request.email,
+            password_changed=0
+        )
+        return {"user": new_user, "client": client}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/admin/client-instansi/{user_id}")
+async def update_client_instansi_endpoint(user_id: int, request: ClientInstansiUpdateRequest, user=Depends(get_current_user)):
+    require_role(user, ["superadmin", "admin"], "Mengubah client instansi")
+    try:
+        database.update_client_instansi(
+            user_id=user_id,
+            username=request.username,
+            instansi_name=request.instansi_name,
+            client_type=request.client_type,
+            password=request.password
+        )
+        return {"status": "success", "message": "Client instansi berhasil diperbarui."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/admin/clients/{client_id}/generate-api-key")
+async def generate_api_key_endpoint(client_id: int, user=Depends(get_current_user)):
+    require_role(user, ["superadmin", "admin", "admin_client"], "Generate API Key")
+    # admin_client cuma boleh reset API key miliknya sendiri
+    if user["role"] == "admin_client":
+        require_client_access(user, client_id)
+        
+    try:
+        new_key = database.generate_client_api_key(client_id)
+        return {"api_key": new_key}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 
 @app.get("/api/health")
