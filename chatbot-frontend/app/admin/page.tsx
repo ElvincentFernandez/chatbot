@@ -125,8 +125,9 @@ export default function AdminDashboard() {
       if (res.ok) {
         const data = await res.json();
         setClients(data);
-        // Default select first client for superadmin
-        if (!userClientId && data.length > 0 && !selectedClientId) {
+        const storedCId = localStorage.getItem("client_id");
+        // Default select first client for superadmin/admin global only
+        if (!storedCId && data.length > 0 && !selectedClientId) {
           setSelectedClientId(data[0].id);
         }
       }
@@ -305,10 +306,14 @@ export default function AdminDashboard() {
   // Document management (Upload / Delete)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !selectedClientId) return;
+    if (!file) return;
 
     const token = localStorage.getItem("token");
     if (!token) return;
+
+    const uClientId = localStorage.getItem("client_id");
+    const targetClientId = uClientId ? parseInt(uClientId) : selectedClientId;
+    if (!targetClientId) return;
 
     setIsUploading(true);
     setUploadStatus(null);
@@ -317,7 +322,7 @@ export default function AdminDashboard() {
     formData.append("file", file);
 
     try {
-      const res = await fetch(`http://localhost:8000/api/upload?client_id=${selectedClientId}`, {
+      const res = await fetch(`http://localhost:8000/api/upload?client_id=${targetClientId}`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}` },
         body: formData,
@@ -329,7 +334,7 @@ export default function AdminDashboard() {
       }
 
       setUploadStatus(`Sukses membaca '${file.name}' dan dimasukkan ke ChromaDB!`);
-      fetchDocuments(token, parseInt(selectedClientId.toString()));
+      fetchDocuments(token, parseInt(targetClientId.toString()));
     } catch (err: any) {
       setUploadStatus(`Error: ${err.message}`);
     } finally {

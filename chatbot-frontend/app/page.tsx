@@ -173,17 +173,21 @@ export default function Home() {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !selectedClientId) return;
+    if (!file) return;
 
     const token = localStorage.getItem("token");
     if (!token) return;
+
+    const uClientId = localStorage.getItem("client_id");
+    const targetClientId = uClientId ? parseInt(uClientId) : selectedClientId;
+    if (!targetClientId || targetClientId === "global") return;
 
     setIsLoading(true);
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      const res = await fetch(`http://localhost:8000/api/upload?client_id=${selectedClientId}`, {
+      const res = await fetch(`http://localhost:8000/api/upload?client_id=${targetClientId}`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`

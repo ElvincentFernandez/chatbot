@@ -8,14 +8,27 @@ def validate_upload_access(user: dict, client_id: Optional[int]) -> int:
     if user["role"] not in ["admin", "superadmin", "admin_client"]:
         raise HTTPException(status_code=403, detail="Anda tidak diizinkan mengunggah dokumen.")
 
+    user_cid = user.get("client_id")
+
+    if user["role"] == "admin_client":
+        if user_cid is None:
+            raise HTTPException(
+                status_code=403,
+                detail="Akses ditolak. Akun Admin Client Anda belum memiliki Client ID yang ditugaskan."
+            )
+
+        try:
+            return int(user_cid)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Client ID milik user tidak valid.")
+
+    # Untuk role superadmin / admin (global):
     if client_id is None:
-        if user["role"] == "admin_client":
-            if user.get("client_id") is None:
-                raise HTTPException(status_code=400, detail="Admin client belum memiliki client yang ditetapkan.")
-            return user["client_id"]
-        raise HTTPException(status_code=400, detail="client_id wajib diisi.")
+        raise HTTPException(status_code=400, detail="client_id wajib diisi untuk Admin / Superadmin.")
 
-    if user["role"] == "admin_client" and user.get("client_id") != client_id:
-        raise HTTPException(status_code=403, detail="Anda hanya diizinkan mengunggah dokumen ke Client Anda sendiri.")
+    try:
+        return int(client_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="client_id yang dikirim tidak valid.")
 
-    return client_id
+
