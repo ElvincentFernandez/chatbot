@@ -9,6 +9,7 @@ interface ChatSession {
   id: string
   title: string
   created_at: string
+  client_name?: string
 }
 
 interface SidebarProps {
@@ -211,8 +212,8 @@ export function Sidebar({ currentSessionId, onSelectSession, onNewChat }: Sideba
           )}
         </div>
 
-        {/* Navigation for Admin/Superadmin/Admin Client */}
-        {(role === 'admin' || role === 'superadmin' || role === 'admin_client') && (
+        {/* Navigation for Admin/Admin Client */}
+        {(role === 'admin' || role === 'admin_client') && (
           <div className="px-4 py-2 border-t border-sidebar-border">
             <Link 
               href="/admin" 

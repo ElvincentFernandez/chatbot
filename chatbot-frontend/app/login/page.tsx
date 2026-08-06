@@ -47,6 +47,7 @@ export default function LoginPage() {
       localStorage.setItem("token", userData.token);
       localStorage.setItem("username", userData.username);
       localStorage.setItem("role", userData.role);
+      localStorage.setItem("password_changed", (userData.password_changed ?? 1).toString());
       if (userData.client_id) {
         localStorage.setItem("client_id", userData.client_id.toString());
         localStorage.setItem("client_name", userData.client_name || "");
