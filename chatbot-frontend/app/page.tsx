@@ -5,6 +5,7 @@ import { MessageCircle, Zap, BookOpen, Database, Send, Square, Building2, School
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import { useRouter } from "next/navigation";
+import { ForceChangePassword } from "@/components/force-change-password";
 
 interface Message {
   id: string;
@@ -26,6 +27,7 @@ export default function Home() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [username, setUsername] = useState<string | null>(null);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   
   // Client selection states
   const [clients, setClients] = useState<Client[]>([]);
@@ -58,9 +60,14 @@ export default function Home() {
     const uname = localStorage.getItem("username");
     const uClientId = localStorage.getItem("client_id");
     const uClientName = localStorage.getItem("client_name");
+    const pwChanged = localStorage.getItem("password_changed");
 
     setUserRole(role);
     setUsername(uname);
+
+    if (role === "admin_client" && pwChanged === "0") {
+      setMustChangePassword(true);
+    }
 
     if (uClientId) {
       const cid = parseInt(uClientId);
@@ -403,6 +410,10 @@ export default function Home() {
   const activeClientName = selectedClientId === "global" 
     ? "General Assistant" 
     : (clients.find(c => c.id === selectedClientId)?.name || userClientName || "");
+
+  if (mustChangePassword) {
+    return <ForceChangePassword onSuccess={() => setMustChangePassword(false)} />;
+  }
 
   return (
     <div className="flex h-screen bg-background">

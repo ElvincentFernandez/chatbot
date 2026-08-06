@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 def validate_upload_access(user: dict, client_id: Optional[int]) -> int:
     """Validate whether a user is allowed to upload documents to the target client."""
-    if user["role"] not in ["admin", "superadmin", "admin_client"]:
+    if user["role"] not in ["admin", "admin_client"]:
         raise HTTPException(status_code=403, detail="Anda tidak diizinkan mengunggah dokumen.")
 
     user_cid = user.get("client_id")
