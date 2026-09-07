@@ -148,7 +148,6 @@ export default function LoginPage() {
           <p>Default Users:</p>
           <p>Admin (Global): <code className="text-slate-400">admin</code> / <code className="text-slate-400">admin123</code></p>
           <p>Admin Client: <code className="text-slate-400">adminclient</code> / <code className="text-slate-400">client123</code></p>
-          <p>User: <code className="text-slate-400">user</code> / <code className="text-slate-400">user123</code></p>
         </div>
       </div>
     </div>

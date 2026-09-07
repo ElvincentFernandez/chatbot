@@ -48,28 +48,7 @@ export default function LiveChatDemo() {
   const [chatInput, setChatInput] = useState("");
   
   // Dummy history sessions list
-  const [sessions, setSessions] = useState<ChatSession[]>([
-    {
-      id: "SEC-9021",
-      name: "Rinaldi",
-      email: "rinaldi@gmail.com",
-      phone: "081234567890",
-      question: "Bagaimana cara mengunggah dokumen PDF baru?",
-      date: "18/02/2025",
-      messages: [
-        {
-          role: "user",
-          content: "Bagaimana cara mengunggah dokumen PDF baru?",
-          timestamp: "14:32"
-        },
-        {
-          role: "assistant",
-          content: "Untuk mengunggah dokumen PDF baru, Anda dapat menavigasi ke tab Vault di menu samping.",
-          timestamp: "14:32"
-        }
-      ]
-    }
-  ]);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
