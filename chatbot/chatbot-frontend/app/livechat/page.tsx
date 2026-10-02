@@ -44,7 +44,7 @@ export default function LiveChatDemo() {
   const [phone, setPhone] = useState("");
   const [question, setQuestion] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState("rc_live_gunadarma_89327f");
+  const [apiKeyInput, setApiKeyInput] = useState("rc_live_universitas_gunadarma_82afb9005955");
   const [chatInput, setChatInput] = useState("");
   
   // Dummy history sessions list
