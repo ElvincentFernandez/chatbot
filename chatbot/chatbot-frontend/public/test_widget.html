@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simulasi Website Client - Test Widget</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: #f8fafc;
+      color: #334155;
+    }
+    .hero {
+      background: linear-gradient(135deg, #1e1b4b, #312e81);
+      color: #fff;
+      padding: 80px 40px;
+      text-align: center;
+    }
+    .hero h1 { font-size: 2.5rem; margin-bottom: 12px; }
+    .hero p { font-size: 1.1rem; opacity: 0.8; max-width: 600px; margin: 0 auto; }
+    .content { max-width: 800px; margin: 40px auto; padding: 0 20px; }
+    .content h2 { color: #1e1b4b; }
+    .content p { line-height: 1.8; color: #64748b; }
+    .card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 24px;
+      margin: 20px 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .card h3 { margin-top: 0; color: #4f46e5; }
+  </style>
+</head>
+<body>
+
+  <div class="hero">
+    <h1>🎓 Universitas Contoh</h1>
+    <p>Website simulasi untuk menguji widget chatbot RAGChat. Klik tombol chat di pojok kanan bawah!</p>
+  </div>
+
+  <div class="content">
+    <h2>Selamat Datang</h2>
+    <p>Ini adalah halaman simulasi website client. Tujuannya untuk menguji apakah file <code>widget.js</code> berhasil menyuntikkan tombol chatbot dan membuka jendela chat iframe.</p>
+
+    <div class="card">
+      <h3>📋 Cara Penggunaan</h3>
+      <p>Ganti nilai <code>RAGCHAT_API_KEY</code> di bawah dengan API Key instansi yang ingin diuji, lalu refresh halaman ini.</p>
+    </div>
+
+    <div class="card">
+      <h3>🔗 Integrasi</h3>
+      <p>Untuk mengintegrasikan chatbot ke website Anda, cukup tambahkan kode berikut sebelum tag <code>&lt;/body&gt;</code>:</p>
+      <pre style="background:#1e1b4b;color:#a5b4fc;padding:16px;border-radius:8px;overflow-x:auto;font-size:13px;">
+&lt;script&gt;
+  window.RAGCHAT_API_KEY = "API_KEY_ANDA";
+  window.RAGCHAT_BASE_URL = "http://localhost:3000";
+&lt;/script&gt;
+&lt;script src="http://localhost:3000/widget.js"&gt;&lt;/script&gt;
+      </pre>
+    </div>
+  </div>
+
+  <!-- Widget Integration -->
+  <script>
+    window.RAGCHAT_API_KEY = "rc_live_universitas_gunadarma_82afb9005955";
+    window.RAGCHAT_BASE_URL = "http://localhost:3000";
+  </script>
+  <script src="http://localhost:3000/widget.js"></script>
+
+</body>
+</html>
