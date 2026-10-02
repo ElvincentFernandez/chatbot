@@ -1,12 +1,17 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useRef } from "react";
-import { 
-  MessageSquare, 
-  Send, 
-  X, 
-  User, 
-  Mail, 
+import {
+  MessageSquare,
+  Home,
+  Send,
+  X,
+  ArrowLeft,
+  ChevronRight,
+  User,
+  Mail,
+  Phone,
+  HelpCircle,
   ShieldCheck,
   Bot,
   RotateCcw
@@ -18,23 +23,41 @@ interface Message {
   timestamp: string;
 }
 
+interface ChatSession {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  question: string;
+  date: string;
+  messages: Message[];
+}
+
 export default function EmbeddedWidgetPage() {
+  // Widget Views: "form" (Formulir), "chat" (Canvas Obrolan), "history" (Pesan Terbaru)
+  const [widgetView, setWidgetView] = useState<"form" | "chat" | "history">("form");
+  const [activeSession, setActiveSession] = useState<ChatSession | null>(null);
   const [apiKey, setApiKey] = useState("");
-  const [clientName, setClientName] = useState("AI Assistant");
-  const [view, setView] = useState<"form" | "chat">("form");
+  const [clientName, setClientName] = useState("RAGChat");
+
+  // Form states
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [chatInput, setChatInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [sessionId, setSessionId] = useState("");
+  const [chatInput, setChatInput] = useState("");
+
+  // Session history list
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (widgetView === "chat") {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [activeSession?.messages, widgetView]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -46,9 +69,7 @@ export default function EmbeddedWidgetPage() {
         fetch(`http://localhost:8000/api/widget/info?api_key=${encodeURIComponent(key)}`)
           .then(res => res.ok ? res.json() : null)
           .then(data => {
-            if (data && data.name) {
-              setClientName(data.name);
-            }
+            if (data && data.name) setClientName(data.name);
           })
           .catch(() => {});
       }
@@ -61,25 +82,43 @@ export default function EmbeddedWidgetPage() {
     }
   };
 
-  const handleStartChat = async (e: React.FormEvent) => {
+  const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !question.trim()) return;
+    if (!name.trim() || !email.trim() || !question.trim()) return;
 
-    const newSessionId = `WIDGET-${Date.now()}`;
-    setSessionId(newSessionId);
-
+    setIsLoading(true);
+    const newSessionId = `SEC-${Math.floor(1000 + Math.random() * 9000)}`;
     const timeString = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-    const initialUserMsg: Message = {
-      role: "user",
-      content: question.trim(),
-      timestamp: timeString
+    const dateString = new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+    const newSession: ChatSession = {
+      id: newSessionId,
+      name: name.trim(),
+      email: email.trim(),
+      phone: phone.trim(),
+      question: question.trim(),
+      date: dateString,
+      messages: [
+        {
+          role: "user",
+          content: question.trim(),
+          timestamp: timeString
+        }
+      ]
     };
 
-    setMessages([initialUserMsg]);
-    setView("chat");
-    setIsLoading(true);
+    setActiveSession(newSession);
+    setWidgetView("chat");
+
+    // Clear form fields
+    setName("");
+    setEmail("");
+    setPhone("");
+    setQuestion("");
 
     try {
+      let responseText = "Terima kasih telah menghubungi kami. Pertanyaan Anda sedang kami proses.";
+
       const res = await fetch("http://localhost:8000/api/widget/chat", {
         method: "POST",
         headers: {
@@ -94,52 +133,60 @@ export default function EmbeddedWidgetPage() {
         })
       });
 
-      let responseText = "Maaf, terjadi kendala saat memproses jawaban.";
       if (res.ok) {
-        const data = await res.json();
-        responseText = data.response;
+        const chatData = await res.json();
+        responseText = chatData.response;
       } else {
         const err = await res.json();
-        responseText = `Gagal: ${err.detail || "Terjadi kesalahan pada server."}`;
+        responseText = `Error API Widget: ${err.detail || "Gagal memproses query RAG."}`;
       }
 
-      setMessages(prev => [
-        ...prev,
-        {
+      setTimeout(() => {
+        newSession.messages.push({
           role: "assistant",
           content: responseText,
           timestamp: new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })
-        }
-      ]);
+        });
+        setActiveSession({ ...newSession });
+        setSessions(prev => [newSession, ...prev]);
+        setIsLoading(false);
+      }, 1500);
+
     } catch {
-      setMessages(prev => [
-        ...prev,
-        {
+      setTimeout(() => {
+        newSession.messages.push({
           role: "assistant",
-          content: "Tidak dapat terhubung ke server RAG. Pastikan server backend berjalan.",
+          content: "Tidak dapat terhubung ke server RAG. Pastikan backend berjalan.",
           timestamp: new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })
-        }
-      ]);
-    } finally {
-      setIsLoading(false);
+        });
+        setActiveSession({ ...newSession });
+        setSessions(prev => [newSession, ...prev]);
+        setIsLoading(false);
+      }, 1000);
     }
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
+  const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatInput.trim() || isLoading) return;
+    if (!chatInput.trim() || !activeSession || isLoading) return;
 
-    const userText = chatInput.trim();
+    const userMsg = chatInput.trim();
     setChatInput("");
-
-    const timeString = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-    setMessages(prev => [
-      ...prev,
-      { role: "user", content: userText, timestamp: timeString }
-    ]);
     setIsLoading(true);
 
+    const timeString = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+
+    const updatedMessages = [
+      ...activeSession.messages,
+      { role: "user" as const, content: userMsg, timestamp: timeString }
+    ];
+
+    const updatedSession = { ...activeSession, messages: updatedMessages };
+    setActiveSession(updatedSession);
+
     try {
+      let responseText = "Gagal memproses query RAG.";
+
       const res = await fetch("http://localhost:8000/api/widget/chat", {
         method: "POST",
         headers: {
@@ -147,208 +194,311 @@ export default function EmbeddedWidgetPage() {
           "X-API-KEY": apiKey.trim()
         },
         body: JSON.stringify({
-          message: userText,
-          session_id: sessionId,
+          message: userMsg,
+          session_id: activeSession.id,
           document: null,
           general_mode: false
         })
       });
 
-      let responseText = "Maaf, terjadi kendala.";
       if (res.ok) {
-        const data = await res.json();
-        responseText = data.response;
+        const chatData = await res.json();
+        responseText = chatData.response;
       } else {
         const err = await res.json();
-        responseText = `Gagal: ${err.detail || "Terjadi kesalahan."}`;
+        responseText = `Error API Widget: ${err.detail || "Gagal memproses query RAG."}`;
       }
 
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          content: responseText,
-          timestamp: new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })
-        }
-      ]);
+      const timeStringAss = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+      const finalSession = {
+        ...updatedSession,
+        messages: [
+          ...updatedMessages,
+          { role: "assistant" as const, content: responseText, timestamp: timeStringAss }
+        ]
+      };
+
+      setActiveSession(finalSession);
+      setSessions(prev => prev.map(s => s.id === activeSession.id ? finalSession : s));
     } catch {
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "Koneksi ke backend terputus.",
-          timestamp: new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })
-        }
-      ]);
+      console.error("Koneksi ke backend terputus.");
     } finally {
       setIsLoading(false);
     }
   };
 
+  const selectHistorySession = (session: ChatSession) => {
+    setActiveSession(session);
+    setWidgetView("chat");
+  };
+
   return (
-    <div className="w-full h-screen bg-slate-900 text-slate-100 flex flex-col justify-between overflow-hidden font-sans border border-slate-800">
-      {/* Header */}
-      <div className="p-3.5 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md flex items-center justify-between shrink-0 shadow-md">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white shadow-sm">
-            <Bot className="w-4 h-4" />
-          </div>
-          <div>
-            <h2 className="text-xs font-bold text-slate-100 line-clamp-1">
-              {clientName}
-            </h2>
-            <p className="text-[10px] text-emerald-400 flex items-center gap-1 font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Online • RAG Knowledge
-            </p>
-          </div>
+    <div className="w-full h-screen bg-slate-900 text-slate-100 flex flex-col justify-between overflow-hidden font-sans">
+
+      {/* Header — sama persis dengan /livechat widget header */}
+      <div className="p-4 border-b border-slate-800/80 flex items-center justify-between bg-slate-950/40 shrink-0">
+        <div>
+          <h2 className="text-xs font-bold text-slate-100">
+            Welcome to RAGChat
+          </h2>
+          <p className="text-[10px] text-emerald-400 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            {clientName} • Online
+          </p>
         </div>
         <div className="flex items-center gap-1">
-          {view === "chat" && (
+          {widgetView === "chat" && (
             <button
               onClick={() => {
-                setView("form");
-                setMessages([]);
+                setActiveSession(null);
+                setWidgetView("form");
               }}
               title="Mulai obrolan baru"
-              className="text-slate-400 hover:text-slate-200 p-1.5 hover:bg-slate-800 rounded-lg transition-colors"
+              className="text-slate-500 hover:text-slate-300 p-1 hover:bg-slate-800 rounded transition-colors"
             >
-              <RotateCcw size={14} />
+              <RotateCcw size={13} />
             </button>
           )}
-          <button 
+          <button
             onClick={handleClose}
-            title="Tutup obrolan"
-            className="text-slate-400 hover:text-slate-200 p-1.5 hover:bg-slate-800 rounded-lg transition-colors"
+            className="text-slate-500 hover:text-slate-350 p-1 hover:bg-slate-800 rounded transition-colors"
           >
-            <X size={16} />
+            <X size={15} />
           </button>
         </div>
       </div>
 
-      {/* Main Body */}
+      {/* Widget Dynamic Screen Views */}
       <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
-        {view === "form" ? (
-          <form onSubmit={handleStartChat} className="space-y-3.5 pt-1">
-            <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-[11px] text-indigo-300">
-              👋 Halo! Silakan isi pertanyaan Anda untuk mendapatkan jawaban langsung dari basis pengetahuan kami.
-            </div>
 
+        {widgetView === "form" && (
+          /* VIEW 1: Form / Context Panel */
+          <form onSubmit={handleSubmitForm} className="space-y-3.5">
             <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                <User className="w-3 h-3 text-indigo-400" /> Nama Anda
+              <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <User className="w-2.5 h-2.5" /> Nama
               </label>
               <input
                 type="text"
                 required
-                placeholder="Misal: Andi"
+                placeholder="Masukkan nama lengkap"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:outline-none focus:border-indigo-500 text-xs placeholder-slate-600 transition-colors"
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-850 rounded-xl text-slate-200 focus:outline-none focus:border-purple-500 text-xs placeholder-slate-700"
               />
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                <Mail className="w-3 h-3 text-indigo-400" /> Email (Opsional)
+              <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <Mail className="w-2.5 h-2.5" /> Email
               </label>
               <input
                 type="email"
-                placeholder="nama@email.com"
+                required
+                placeholder="Masukkan alamat email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:outline-none focus:border-indigo-500 text-xs placeholder-slate-600 transition-colors"
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-850 rounded-xl text-slate-200 focus:outline-none focus:border-purple-500 text-xs placeholder-slate-700"
               />
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                <MessageSquare className="w-3 h-3 text-indigo-400" /> Pertanyaan
+              <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <Phone className="w-2.5 h-2.5" /> Nomor handphone
+              </label>
+              <input
+                type="tel"
+                placeholder="Masukkan nomor handphone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-850 rounded-xl text-slate-200 focus:outline-none focus:border-purple-500 text-xs placeholder-slate-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <HelpCircle className="w-2.5 h-2.5" /> Pertanyaan (Question)
               </label>
               <textarea
                 required
                 rows={3}
-                placeholder="Tuliskan hal yang ingin ditanyakan..."
+                placeholder="Pesan..."
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:outline-none focus:border-indigo-500 text-xs placeholder-slate-600 resize-none transition-colors"
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-850 rounded-xl text-slate-200 focus:outline-none focus:border-purple-500 text-xs placeholder-slate-700 resize-none font-sans"
               />
             </div>
 
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-500/20 active:scale-98"
+              className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-lg shadow-purple-600/20 disabled:opacity-60"
             >
-              {isLoading ? "Menghubungkan..." : "Mulai Obrolan"}
+              {isLoading ? "Memproses..." : "Submit to RAG System"}
               <Send className="w-3 h-3" />
             </button>
           </form>
-        ) : (
-          <div className="space-y-3">
-            {messages.map((m, idx) => (
-              <div key={idx} className={`flex items-start gap-2 ${m.role === "user" ? "justify-end" : ""}`}>
-                {m.role === "assistant" && (
+        )}
+
+        {widgetView === "chat" && activeSession && (
+          /* VIEW 2: Chat History Canvas */
+          <div className="h-full flex flex-col justify-between space-y-4">
+            {/* Active Session Label */}
+            <div className="border-b border-slate-800 pb-2 mb-2 flex items-center justify-between">
+              <div>
+                <h3 className="text-[10px] font-bold text-slate-200 flex items-center gap-1">
+                  <MessageSquare className="w-3 h-3 text-purple-400" />
+                  Active Session: #{activeSession.id}
+                </h3>
+                <p className="text-[8px] text-slate-500">
+                  End-to-End Encrypted RAG Retrieval
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setActiveSession(null);
+                  setWidgetView("form");
+                }}
+                className="px-2 py-0.5 text-[8px] bg-slate-800 hover:bg-slate-700 text-slate-400 rounded transition-colors"
+              >
+                Batal
+              </button>
+            </div>
+
+            {/* Messages Panel */}
+            <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+              {activeSession.messages.map((m, idx) => (
+                <div key={idx} className={`flex items-start gap-2 ${m.role === "user" ? "justify-end" : ""}`}>
+                  {m.role === "assistant" && (
+                    <div className="w-6 h-6 rounded-full bg-purple-600/20 border border-purple-500/30 flex items-center justify-center shrink-0">
+                      <Bot className="w-3 h-3 text-purple-400" />
+                    </div>
+                  )}
+                  <div className={`max-w-[85%] rounded-xl p-3 text-[11px] leading-relaxed ${
+                    m.role === "user"
+                      ? "bg-slate-800 border border-slate-750 text-slate-200"
+                      : "bg-purple-950/20 border border-purple-500/20 text-slate-350"
+                  }`}>
+                    <p className="whitespace-pre-wrap">{m.content}</p>
+                    <span className="block text-[8px] text-slate-500 mt-1 text-right">{m.timestamp}</span>
+                  </div>
+                  {m.role === "user" && (
+                    <div className="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
+                      <User className="w-3 h-3 text-slate-300" />
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {isLoading && (
+                <div className="flex items-start gap-2">
                   <div className="w-6 h-6 rounded-full bg-purple-600/20 border border-purple-500/30 flex items-center justify-center shrink-0">
                     <Bot className="w-3 h-3 text-purple-400" />
                   </div>
-                )}
-                <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[11px] leading-relaxed shadow-sm ${
-                  m.role === "user" 
-                    ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white" 
-                    : "bg-slate-950 border border-slate-800/80 text-slate-300"
-                }`}>
-                  <p className="whitespace-pre-wrap">{m.content}</p>
-                  <span className="block text-[8px] text-slate-400/80 mt-1 text-right">
-                    {m.timestamp}
-                  </span>
+                  <div className="bg-purple-950/10 border border-purple-500/10 rounded-xl p-2.5 text-[11px] text-purple-300 flex items-center gap-1.5">
+                    <span className="w-3 h-3 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+                    <span>RAG System processing...</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )}
 
-            {isLoading && (
-              <div className="flex items-start gap-2">
-                <div className="w-6 h-6 rounded-full bg-purple-600/20 border border-purple-500/30 flex items-center justify-center shrink-0">
-                  <Bot className="w-3 h-3 text-purple-400" />
-                </div>
-                <div className="bg-slate-950 border border-slate-800/80 rounded-2xl px-3 py-2 text-[11px] text-indigo-300 flex items-center gap-2 shadow-sm">
-                  <span className="w-3 h-3 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
-                  <span>Menganalisis dokumen RAG...</span>
-                </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Chat Input */}
+            <form onSubmit={handleSendChat} className="relative pt-2 border-t border-slate-800/60">
+              <input
+                type="text"
+                placeholder="Tulis pesan..."
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                disabled={isLoading}
+                className="w-full pl-3 pr-10 py-2.5 bg-slate-950 border border-slate-850 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-purple-500 placeholder-slate-700"
+              />
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="absolute right-3 top-[18px] text-purple-400 hover:text-purple-300 disabled:opacity-40"
+              >
+                <Send className="w-3.5 h-3.5" />
+              </button>
+            </form>
           </div>
         )}
+
+        {widgetView === "history" && (
+          /* VIEW 3: Message History */
+          <div className="space-y-3.5">
+            <button
+              onClick={() => setWidgetView("form")}
+              className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 transition-colors mb-1"
+            >
+              <ArrowLeft className="w-3 h-3" />
+              Pesan
+            </button>
+
+            <div className="space-y-2.5">
+              <h3 className="text-[10px] font-bold text-slate-500 tracking-wide uppercase">Terbaru</h3>
+
+              {sessions.length === 0 && (
+                <p className="text-[11px] text-slate-600 text-center py-6">Belum ada riwayat percakapan.</p>
+              )}
+
+              {sessions.map((s) => (
+                <div
+                  key={s.id}
+                  onClick={() => selectHistorySession(s)}
+                  className="w-full p-3.5 rounded-xl bg-slate-950 hover:bg-slate-850 border border-slate-850 hover:border-slate-750 transition-all cursor-pointer flex items-center justify-between group"
+                >
+                  <div className="space-y-0.5 truncate flex-1 mr-2 text-left">
+                    <span className="text-xs font-bold text-slate-200 group-hover:text-purple-400 transition-colors">
+                      {s.name}
+                    </span>
+                    <p className="text-[10px] text-slate-500 truncate">
+                      {s.question}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-0.5 text-slate-500 shrink-0">
+                    <span className="text-[9px]">{s.date}</span>
+                    <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
       </div>
 
-      {/* Footer / Input (Chat View only) */}
-      {view === "chat" ? (
-        <form onSubmit={handleSendMessage} className="p-3 border-t border-slate-800 bg-slate-950/80 flex items-center gap-2 shrink-0">
-          <input 
-            type="text" 
-            placeholder="Ketik pesan..." 
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            disabled={isLoading}
-            className="flex-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-indigo-500 placeholder-slate-600 transition-colors"
-          />
-          <button 
-            type="submit" 
-            disabled={isLoading || !chatInput.trim()}
-            className="p-2 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white rounded-xl disabled:opacity-40 transition-all shadow-sm"
+      {/* Footer Navigation Tabs — sama persis dengan /livechat */}
+      <div className="p-3 border-t border-slate-800/80 bg-slate-950/40 space-y-2.5 shrink-0">
+        <div className="flex items-center justify-around bg-purple-500/5 border border-purple-500/10 rounded-xl p-1">
+          <button
+            onClick={() => setWidgetView("form")}
+            className={`flex-1 py-1.5 rounded-lg flex items-center justify-center text-xs transition-all ${
+              widgetView === "form" || widgetView === "chat" ? "bg-purple-600/90 text-white shadow" : "text-purple-400 hover:text-purple-300"
+            }`}
           >
-            <Send className="w-3.5 h-3.5" />
+            <Home className="w-3.5 h-3.5" />
           </button>
-        </form>
-      ) : (
-        <div className="p-2 border-t border-slate-800/60 text-center shrink-0">
-          <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold flex items-center justify-center gap-1">
-            <ShieldCheck className="w-3 h-3 text-indigo-400" />
-            Powered by RAG Local Provider
+          <button
+            onClick={() => setWidgetView("history")}
+            className={`flex-1 py-1.5 rounded-lg flex items-center justify-center text-xs transition-all ${
+              widgetView === "history" ? "bg-purple-600/90 text-white shadow" : "text-purple-400 hover:text-purple-300"
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="text-center">
+          <span className="text-[8px] uppercase tracking-wider text-slate-500 font-bold flex items-center justify-center gap-1">
+            <ShieldCheck className="w-3 h-3 text-purple-500/60" />
+            End-to-End Encrypted
           </span>
         </div>
-      )}
+      </div>
+
     </div>
   );
 }
